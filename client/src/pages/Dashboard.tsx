@@ -8,7 +8,7 @@ import {
   Loader2,
   RefreshCw,
 } from 'lucide-react'
-import { threadsApi, type Thread, type Category } from '../api/client'
+import { threadsApi, type Thread } from '../api/client'
 import ThreadModal from '../components/ThreadModal'
 
 const STATUS_CONFIG = {
