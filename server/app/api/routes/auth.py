@@ -32,64 +32,72 @@ async def google_callback(
     code: str = Query(...),
     db: AsyncSession = Depends(get_db)
 ):
-    flow = get_google_oauth_flow()
-    flow.fetch_token(code=code)
-    credentials = flow.credentials
-    
-    user_info = await get_user_info(credentials)
-    email = user_info.get("email")
-    name = user_info.get("name")
-    picture = user_info.get("picture")
-    
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-    
-    is_new_user = False
-    if not user:
-        user = User(
-            email=email,
-            name=name,
-            picture=picture,
-            google_access_token=credentials.token,
-            google_refresh_token=credentials.refresh_token,
-            google_token_expiry=credentials.expiry,
+    try:
+        flow = get_google_oauth_flow()
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+
+        user_info = await get_user_info(credentials)
+        email = user_info.get("email")
+        name = user_info.get("name")
+        picture = user_info.get("picture")
+
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+
+        is_new_user = False
+        if not user:
+            user = User(
+                email=email,
+                name=name,
+                picture=picture,
+                google_access_token=credentials.token,
+                google_refresh_token=credentials.refresh_token,
+                google_token_expiry=credentials.expiry,
+            )
+            db.add(user)
+            is_new_user = True
+        else:
+            user.google_access_token = credentials.token
+            user.google_refresh_token = credentials.refresh_token
+            user.google_token_expiry = credentials.expiry
+            user.name = name
+            user.picture = picture
+
+        await db.commit()
+        await db.refresh(user)
+
+        access_token = create_access_token(data={"sub": str(user.id)})
+
+        from fastapi import Response
+        from urllib.parse import urlencode
+
+        # Build redirect URL based on environment
+        # In production, redirect to the client URL; in development, localhost
+        if settings.app_env == "production" and settings.client_url:
+            redirect_base = settings.client_url.rstrip('/')
+        else:
+            redirect_base = "http://localhost:5173"
+
+        params = urlencode({
+            "token": access_token,
+            "user_id": str(user.id),
+            "email": email,
+            "name": name or "",
+            "picture": picture or "",
+        })
+
+        return Response(
+            content=f'<html><body><script>window.location.href="{redirect_base}/auth/callback?{params}";</script></body></html>',
+            media_type="text/html",
         )
-        db.add(user)
-        is_new_user = True
-    else:
-        user.google_access_token = credentials.token
-        user.google_refresh_token = credentials.refresh_token
-        user.google_token_expiry = credentials.expiry
-        user.name = name
-        user.picture = picture
-    
-    await db.commit()
-    await db.refresh(user)
-    
-    access_token = create_access_token(data={"sub": str(user.id)})
-    
-    from fastapi import Response
-    from urllib.parse import urlencode
-
-    # Build redirect URL based on environment
-    # In production, redirect to the client URL; in development, localhost
-    if settings.app_env == "production" and settings.client_url:
-        redirect_base = settings.client_url.rstrip('/')
-    else:
-        redirect_base = "http://localhost:5173"
-
-    params = urlencode({
-        "token": access_token,
-        "user_id": str(user.id),
-        "email": email,
-        "name": name or "",
-        "picture": picture or "",
-    })
-
-    return Response(
-        content=f'<html><body><script>window.location.href="{redirect_base}/auth/callback?{params}";</script></body></html>',
-        media_type="text/html",
-    )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Callback error: {str(e)}"
+        )
 
 
 @router.post("/logout")
