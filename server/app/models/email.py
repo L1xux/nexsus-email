@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Enum, Float
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -30,7 +30,7 @@ class Email(Base):
     body_html = Column(Text, nullable=True)
     label_ids = Column(Text, nullable=True)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True)
-    status = Column(Enum(EmailStatus), default=EmailStatus.INBOX, index=True)
+    status = Column(String(20), default="inbox", index=True)
     classification_confidence = Column(Float, nullable=True)
     classification_reason = Column(String(500), nullable=True)
     is_read = Column(Boolean, default=False, index=True)

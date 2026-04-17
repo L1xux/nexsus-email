@@ -66,40 +66,23 @@ async def google_callback(
     await db.commit()
     await db.refresh(user)
     
-    # Set up Gmail watch for new users or if topic is configured
-    watch_status = None
-    if is_new_user and settings.gmail_pubsub_topic:
-        try:
-            webhook_url = f"{settings.client_url}/api/webhooks/gmail"
-            watch_result = await watch_gmail_user(
-                credentials,
-                settings.gmail_pubsub_topic,
-                webhook_url,
-            )
-            watch_status = {
-                "history_id": watch_result.get("history_id"),
-                "expiration": watch_result.get("expiration"),
-            }
-        except Exception as e:
-            print(f"Failed to set up Gmail watch: {e}")
-    
     access_token = create_access_token(data={"sub": str(user.id)})
     
-    response = {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "name": user.name,
-            "picture": user.picture,
-        },
-    }
+    from fastapi import Response
+    from urllib.parse import urlencode
     
-    if watch_status:
-        response["gmail_watch"] = watch_status
+    params = urlencode({
+        "token": access_token,
+        "user_id": str(user.id),
+        "email": email,
+        "name": name or "",
+        "picture": picture or "",
+    })
     
-    return response
+    return Response(
+        content=f'<html><body><script>window.location.href="http://localhost:5173/auth/callback?{params}";</script></body></html>',
+        media_type="text/html",
+    )
 
 
 @router.post("/logout")

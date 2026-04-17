@@ -4,8 +4,7 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# Convert mysql+pymysql to mysql+aiomysql
-db_url = settings.database_url.replace("mysql+pymysql", "mysql+aiomysql")
+db_url = settings.database_url
 
 engine = create_async_engine(
     db_url,

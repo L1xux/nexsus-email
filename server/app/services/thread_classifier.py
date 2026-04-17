@@ -1,6 +1,7 @@
 import base64
 import json
 import re
+from datetime import datetime
 from typing import Optional
 
 from openai import AsyncOpenAI
@@ -15,48 +16,66 @@ settings = get_settings()
 
 
 class ThreadClassificationResult(BaseModel):
-    status: str
+    status: str   # lowercase: "todo", "waiting", "done"
     confidence: float
     reason: str
+    deadline: Optional[datetime] = None
 
 
-SYSTEM_PROMPT = """You are an email thread classification assistant. Your task is to classify an entire email conversation thread into one of three statuses based on whether the user needs to take action.
+SYSTEM_PROMPT = """You are an email thread classification assistant. Your task is to classify an email thread into one of four statuses.
+
+IMPORTANT RULE: Only classify a thread as "todo", "waiting", or "done" if it is a BUSINESS email thread that requires active management. All non-business emails (social media, promotions, newsletters, personal, automated notifications) MUST be classified as "inbox".
 
 CLASSIFICATION CRITERIA:
 
-1. "ToDo" - User needs to take action:
-   - The thread contains a request or task assigned to the user
-   - Contains questions directed at the user that require response
-   - Action items, deadlines, or assignments are mentioned
-   - Requires a response or follow-up from the user
+1. "inbox" - DEFAULT for ALL non-business emails (HIGHEST PRIORITY):
+   - Social media notifications (Facebook, Twitter, LinkedIn, Instagram notifications)
+   - Marketing emails, promotional content, discounts, deals
+   - Newsletters, news digests, product updates
+   - Automated system notifications (password resets, security alerts, receipt confirmations)
+   - Personal emails from friends or family
+   - Any email that is not clearly a business/work communication
+   - If unsure whether it's business → default to "inbox"
 
-2. "Waiting" - User is waiting for someone else:
-   - User has previously sent a message and is awaiting a reply
-   - Thread shows the user expecting a response from another party
-   - Contains confirmation requests where someone is waiting on user
+2. "todo" - Business emails where user needs to take action:
+   - Work tasks, project assignments, or requests from colleagues/clients
+   - Questions directed at the user that require a business response
+   - Action items with deadlines from work context
+   - Contracts, invoices, or business documents needing review/approval
 
-3. "Done" - No action needed:
-   - Purely informational threads (newsletters, announcements)
-   - Automated notifications, system alerts
-   - User has completed the task and thread is closed
-   - Social notifications, marketing emails
+3. "waiting" - Business emails where user is awaiting a business reply:
+   - User has sent a business message and is waiting for a response
+   - Business negotiations, discussions, or conversations in progress
+   - Pending confirmations from business contacts
+
+4. "done" - Business threads that are resolved/closed:
+   - Business threads where the task is completed
+   - Business newsletters or work announcements with no action needed
+   - Calendared meeting invites that have passed
+
+DEADLINE EXTRACTION:
+- If the thread mentions a specific deadline or due date, extract it as an ISO 8601 datetime string.
+- Look for patterns like: "by Friday", "due on March 15", "deadline: 2026-03-20", "before EOD", "next Monday", etc.
+- If no deadline is mentioned, set "deadline" to null.
+- Only extract dates the user is expected to meet — not dates when someone else will respond.
 
 IMPORTANT GUIDELINES:
-- Consider the ENTIRE conversation history in the thread
-- The latest message may not be the most important one
-- If the user has already responded to a request, consider if the thread is now waiting for reply
-- When in doubt, classify as "ToDo" (action required)
-- Auto-generated emails are usually "Done"
-- Emails with clear action verbs (please, could you, would you, need to, must) are "ToDo"
+- When in doubt between business and non-business → "inbox"
+- Newsletters about products/services → "inbox"
+- Auto-generated emails of any kind → "inbox"
+- Work emails from colleagues/clients → "todo"/"waiting"/"done" based on context
+- Any thread that doesn't clearly belong to todo/waiting/done → "inbox"
 
 OUTPUT FORMAT:
 You MUST respond with valid JSON only, no other text. Use this exact schema:
-{"status": "ToDo|Waiting|Done", "confidence": 0.0-1.0, "reason": "Brief explanation in 5-20 words"}
+{"status": "inbox|todo|waiting|done", "confidence": 0.0-1.0, "reason": "Brief explanation in 5-20 words", "deadline": "YYYY-MM-DD or null"}
 
 Example outputs:
-{"status": "ToDo", "confidence": 0.95, "reason": "Client requested quote, awaiting response"}
-{"status": "Waiting", "confidence": 0.88, "reason": "User sent proposal, waiting for client reply"}
-{"status": "Done", "confidence": 0.92, "reason": "Newsletter with no action required"}
+{"status": "inbox", "confidence": 0.97, "reason": "Newsletter digest, no business action needed", "deadline": null}
+{"status": "inbox", "confidence": 0.95, "reason": "Twitter notification, non-business email", "deadline": null}
+{"status": "todo", "confidence": 0.93, "reason": "Work contract needs review and signature", "deadline": "2026-04-15"}
+{"status": "waiting", "confidence": 0.87, "reason": "Business proposal sent, awaiting client reply", "deadline": null}
+{"status": "done", "confidence": 0.91, "reason": "Completed project signoff, no further action", "deadline": null}
 """
 
 
@@ -98,6 +117,32 @@ def _parse_message_headers(message: dict) -> dict:
         "snippet": message.get("snippet", ""),
         "body_text": body_text or "",
     }
+
+
+def _parse_deadline(value) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("null", "none", ""):
+        return None
+    try:
+        return datetime.strptime(str(value).strip(), "%Y-%m-%d")
+    except ValueError:
+        try:
+            return datetime.strptime(str(value).strip(), "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            return None
+
+
+def _normalize_status(raw: str) -> str:
+    mapping = {
+        "inbox": "inbox",
+        "todo": "todo",
+        "waiting": "waiting",
+        "done": "done",
+    }
+    return mapping.get(raw.strip().lower(), "inbox")
 
 
 def _build_conversation_context(messages: list[dict]) -> str:
@@ -148,33 +193,35 @@ Analyze the entire conversation and determine the current status of this thread.
         )
         
         result = json.loads(response.choices[0].message.content.strip())
-        
-        status = result.get("status", "ToDo")
-        if status not in ["ToDo", "Waiting", "Done"]:
-            status = "ToDo"
-        
+
+        raw_status = result.get("status", "todo")
+        status = _normalize_status(raw_status)
         confidence = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
         reason = result.get("reason", "Classification completed")
-        
+        deadline = _parse_deadline(result.get("deadline"))
+
         return ThreadClassificationResult(
             status=status,
             confidence=confidence,
-            reason=reason
+            reason=reason,
+            deadline=deadline,
         )
         
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"Thread classification error: {e}")
         return ThreadClassificationResult(
-            status="ToDo",
+            status="inbox",
             confidence=0.3,
-            reason="Failed to parse response, defaulting to ToDo"
+            reason="Failed to parse response, defaulting to inbox",
+            deadline=None,
         )
     except Exception as e:
         print(f"Thread classification error: {e}")
         return ThreadClassificationResult(
-            status="ToDo",
+            status="inbox",
             confidence=0.3,
-            reason=f"Classification failed: {str(e)[:20]}"
+            reason=f"Classification failed: {str(e)[:20]}",
+            deadline=None,
         )
 
 

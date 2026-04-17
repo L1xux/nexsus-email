@@ -8,13 +8,20 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# Vector size for text-embedding-3-small
-VECTOR_SIZE = 1536
+# Vector size for embedding model
+VECTOR_SIZE = 1024  # bge-large-en-v1.5 uses 1024 dimensions
 COLLECTION_NAME = "email_feedback"
 
 
 def get_qdrant_client() -> QdrantClient:
-    """Get or create Qdrant client instance."""
+    """Get Qdrant client instance (supports both local and cloud)."""
+    # Check if using Qdrant Cloud (has URL and API key)
+    if settings.qdrant_url and settings.qdrant_api_key:
+        return QdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+        )
+    # Fallback to local Qdrant
     return QdrantClient(
         host=settings.qdrant_host,
         port=settings.qdrant_port,
@@ -49,17 +56,23 @@ async def ensure_collection_exists():
 
 
 async def generate_embedding(text: str) -> List[float]:
-    """Generate embedding for text using OpenAI's text-embedding-3-small."""
-    from openai import AsyncOpenAI
-    
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-    
+    """Generate embedding for text using HuggingFace Inference API (free)."""
+    from huggingface_hub import InferenceClient
+
+    if not settings.hf_token:
+        raise ValueError("HuggingFace token not configured")
+
+    client = InferenceClient(token=settings.hf_token)
+
     try:
-        response = await client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text,
+        embedding = client.feature_extraction(
+            model="BAAI/bge-large-en-v1.5",
+            text=text,
         )
-        return response.data[0].embedding
+        # Convert numpy array to list if needed
+        if hasattr(embedding, 'tolist'):
+            return embedding.tolist()
+        return list(embedding)
     except Exception as e:
         print(f"Error generating embedding: {e}")
         raise
@@ -67,16 +80,21 @@ async def generate_embedding(text: str) -> List[float]:
 
 def generate_embedding_sync(text: str) -> List[float]:
     """Generate embedding synchronously for use in non-async contexts."""
-    from openai import OpenAI
-    
-    client = OpenAI(api_key=settings.openai_api_key)
-    
+    from huggingface_hub import InferenceClient
+
+    if not settings.hf_token:
+        raise ValueError("HuggingFace token not configured")
+
+    client = InferenceClient(token=settings.hf_token)
+
     try:
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text,
+        embedding = client.feature_extraction(
+            model="BAAI/bge-large-en-v1.5",
+            text=text,
         )
-        return response.data[0].embedding
+        if hasattr(embedding, 'tolist'):
+            return embedding.tolist()
+        return list(embedding)
     except Exception as e:
         print(f"Error generating embedding: {e}")
         raise
@@ -88,44 +106,47 @@ async def save_feedback(
     subject: str,
     body: str,
     correct_status: str,
+    user_id: int,
     original_status: Optional[str] = None,
     user_comment: Optional[str] = None,
 ) -> Optional[str]:
     """
     Save feedback to Qdrant vector database.
-    
+
     Args:
-        email_id: The email ID in MariaDB
+        email_id: The email ID
         sender: Email sender
         subject: Email subject
         body: Email body text
         correct_status: The correct status (ToDo/Waiting/Done)
+        user_id: The user ID for filtering
         original_status: The original AI-classified status
         user_comment: Optional user comment about the correction
-    
+
     Returns:
         The point ID in Qdrant, or None if failed
     """
     try:
         # Combine text for embedding
         combined_text = f"Sender: {sender}\nSubject: {subject}\nBody: {body[:500]}"
-        
+
         # Generate embedding
         vector = await generate_embedding(combined_text)
-        
+
         # Create payload with metadata
         payload = {
             "email_id": email_id,
+            "user_id": user_id,
             "sender": sender,
             "subject": subject,
             "original_status": original_status,
             "correct_status": correct_status,
             "user_comment": user_comment,
         }
-        
+
         # Generate unique point ID
         point_id = str(uuid.uuid4())
-        
+
         # Save to Qdrant
         client = get_qdrant_client()
         client.upsert(
@@ -138,10 +159,10 @@ async def save_feedback(
                 )
             ]
         )
-        
+
         print(f"Saved feedback to Qdrant: email_id={email_id}, status={correct_status}")
         return point_id
-        
+
     except Exception as e:
         print(f"Error saving feedback to Qdrant: {e}")
         return None
@@ -154,36 +175,36 @@ async def retrieve_similar_examples(
 ) -> List[Dict[str, Any]]:
     """
     Retrieve similar past feedback examples from Qdrant.
-    
+
     Args:
         text_to_embed: The email text to find similar examples for
-        user_id: Filter by user ID
+        user_id: Filter by user ID (stored in payload)
         top_k: Number of similar examples to retrieve
-    
+
     Returns:
         List of similar examples with their payloads and scores
     """
     try:
         # Generate embedding for the input text
         vector = await generate_embedding(text_to_embed)
-        
+
         # Search Qdrant
         client = get_qdrant_client()
-        
+
         results = client.search(
             collection_name=COLLECTION_NAME,
             query_vector=vector,
             query_filter=Filter(
                 must=[
                     {
-                        "key": "email_id",
+                        "key": "user_id",
                         "match": {"value": user_id}
                     }
                 ]
-            ) if user_id else None,
+            ),
             limit=top_k,
         )
-        
+
         # Format results
         examples = []
         for result in results:
@@ -192,9 +213,9 @@ async def retrieve_similar_examples(
                 "score": result.score,
                 "payload": result.payload,
             })
-        
+
         return examples
-        
+
     except Exception as e:
         print(f"Error retrieving similar examples: {e}")
         return []

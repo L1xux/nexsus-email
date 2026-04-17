@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo 'export PATH=\"$PATH:/c/Program Files/GitHub CLI\"')"
+    ]
+  }
+}

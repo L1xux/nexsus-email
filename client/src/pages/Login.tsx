@@ -11,6 +11,8 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
 
   const isDev = window.location.port === '5174'
+  const urlParams = new URLSearchParams(window.location.search)
+  const googleRequired = urlParams.get('google_required') === 'true'
 
   const handleDevLogin = async () => {
     setLoading(true)
@@ -98,6 +100,12 @@ export default function Login() {
 
           <h2 className="text-2xl font-semibold text-black mb-2">Welcome back</h2>
           <p className="text-zinc-500 mb-8">Sign in to continue</p>
+
+          {googleRequired && !isDev && (
+            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-700 text-sm">
+              Sync requires a connected Gmail account. Please sign in with Google to enable email sync.
+            </div>
+          )}
 
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-lg text-red-600 text-sm">

@@ -14,10 +14,11 @@ class ThreadStatus(str, Enum):
 class ThreadBase(BaseModel):
     subject: Optional[str] = None
     snippet: Optional[str] = None
-    is_read: bool = False
-    is_starred: bool = False
+    is_read: Optional[bool] = False
+    is_starred: Optional[bool] = False
     category_id: Optional[int] = None
     status: ThreadStatus = ThreadStatus.INBOX
+    deadline: Optional[datetime] = None
 
 
 class ThreadUpdate(BaseModel):
@@ -33,8 +34,10 @@ class EmailInThread(BaseModel):
     sender: Optional[str]
     sender_email: Optional[str]
     snippet: Optional[str]
-    is_read: bool
-    is_starred: bool
+    body_text: Optional[str] = None
+    body_html: Optional[str] = None
+    is_read: Optional[bool] = False
+    is_starred: Optional[bool] = False
     received_at: Optional[datetime]
 
     class Config:
@@ -44,11 +47,12 @@ class EmailInThread(BaseModel):
 class ThreadResponse(ThreadBase):
     id: int
     gmail_thread_id: str
-    participant_count: int
-    message_count: int
-    classification_confidence: Optional[float]
-    classification_reason: Optional[str]
-    last_message_at: Optional[datetime]
+    participant_count: Optional[int] = 1
+    message_count: Optional[int] = 1
+    classification_confidence: Optional[float] = None
+    classification_reason: Optional[str] = None
+    last_message_at: Optional[datetime] = None
+    deadline: Optional[datetime] = None
     created_at: datetime
 
     class Config:

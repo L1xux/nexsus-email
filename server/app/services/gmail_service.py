@@ -7,8 +7,9 @@ from app.core.google import get_gmail_service, list_emails, get_email as gmail_g
 async def fetch_recent_emails(
     credentials: Credentials,
     max_results: int = 10,
+    query: str = "",
 ) -> list[dict]:
-    result = await list_emails(credentials, max_results=max_results)
+    result = await list_emails(credentials, max_results=max_results, query=query)
     messages = result.get("messages", [])
     
     emails = []
@@ -74,7 +75,7 @@ def parse_gmail_message(message: dict) -> dict:
         "body_text": body_text,
         "body_html": body_html,
         "label_ids": ",".join(label_ids),
-        "received_at": received_at,
+        "received_at": int(internal_date) / 1000 if internal_date else None,
         "is_read": "UNREAD" not in label_ids,
         "is_starred": "STARRED" in label_ids,
     }

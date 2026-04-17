@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from google.oauth2.credentials import Credentials
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.models.user import User
 from app.models.thread import EmailThread, ThreadStatus
 from app.models.category import Category
@@ -17,6 +18,9 @@ from app.schemas.thread import (
     ThreadStatus as ThreadStatusSchema,
 )
 from app.api.dependencies import get_current_user_dep, get_google_credentials
+from app.services.thread_events import dispatch_classification
+
+settings = get_settings()
 
 router = APIRouter()
 
@@ -24,7 +28,7 @@ router = APIRouter()
 @router.get("", response_model=ThreadListResponse)
 async def list_threads(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     category_id: Optional[int] = None,
     is_read: Optional[bool] = None,
     status: Optional[ThreadStatusSchema] = None,
@@ -104,7 +108,7 @@ async def update_thread(
     if thread_update.is_starred is not None:
         thread.is_starred = thread_update.is_starred
     if thread_update.status is not None:
-        thread.status = ThreadStatus(thread_update.status.value)
+        thread.status = ThreadStatus(thread_update.status.value.lower())
     if thread_update.category_id is not None:
         cat_result = await db.execute(
             select(Category).where(
@@ -130,7 +134,7 @@ async def refresh_thread(
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.email_sync import sync_and_classify_thread
-    
+
     result = await db.execute(
         select(EmailThread).where(
             EmailThread.id == thread_id,
@@ -138,17 +142,59 @@ async def refresh_thread(
         )
     )
     thread = result.scalar_one_or_none()
-    
+
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    
+
     await sync_and_classify_thread(
         user_id=current_user.id,
         gmail_thread_id=thread.gmail_thread_id,
         credentials=credentials,
         db=db,
     )
-    
+
     await db.refresh(thread)
-    
+
     return {"message": "Thread refreshed", "status": thread.status.value}
+
+
+@router.post("/classify-all")
+async def classify_all_threads(
+    current_user: User = Depends(get_current_user_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Dispatch AI classification for all unclassified threads.
+    Uses Gmail API if credentials available; falls back to stored emails otherwise.
+    """
+    # Optional credentials — not required since we can classify from stored emails
+    token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    if current_user.google_access_token:
+        token = current_user.google_access_token
+        refresh_token = current_user.google_refresh_token
+
+    result = await db.execute(
+        select(EmailThread).where(
+            EmailThread.user_id == current_user.id,
+            EmailThread.classification_confidence.is_(None),
+        )
+    )
+    threads = result.scalars().all()
+
+    dispatched = 0
+    for thread in threads:
+        dispatch_classification(
+            user_id=current_user.id,
+            gmail_thread_id=thread.gmail_thread_id,
+            token=token,
+            refresh_token=refresh_token,
+        )
+        dispatched += 1
+
+    return {
+        "message": f"Dispatched classification for {dispatched} threads",
+        "dispatched": dispatched,
+        "total": len(threads),
+        "source": "gmail_api" if token else "stored_emails",
+    }

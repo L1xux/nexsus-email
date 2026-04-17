@@ -3,16 +3,28 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # Database
-    mariadb_host: str = "localhost"
-    mariadb_port: int = 3306
-    mariadb_database: str = "nexusmail"
-    mariadb_user: str = "nexusmail"
-    mariadb_password: str = "nexusmail"
+    # Database (PostgreSQL for production)
+    database_url: str = ""
+
+    # For backward compatibility, also accept individual PostgreSQL settings
+    postgres_host: str = ""
+    postgres_port: int = 5432
+    postgres_database: str = ""
+    postgres_user: str = ""
+    postgres_password: str = ""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Build database_url from individual settings if not provided
+        if not self.database_url and self.postgres_host:
+            self.database_url = f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
 
     @property
-    def database_url(self) -> str:
-        return f"mysql+pymysql://{self.mariadb_user}:{self.mariadb_password}@{self.mariadb_host}:{self.mariadb_port}/{self.mariadb_database}"
+    def database_url_sync(self) -> str:
+        """Synchronous database URL for migrations."""
+        if "+asyncpg" in self.database_url:
+            return self.database_url.replace("+asyncpg", "")
+        return self.database_url
 
     # JWT
     jwt_secret_key: str = "change_me_in_production"
@@ -26,18 +38,24 @@ class Settings(BaseSettings):
     gmail_pubsub_topic: str = ""
     gmail_webhook_verification_token: str = ""
 
-    # OpenAI
+    # OpenAI (for AI Classification)
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
-    # Qdrant
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
+    # HuggingFace (for free embeddings)
+    hf_token: str = ""
+
+    # Qdrant (Vector DB for RAG)
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
     qdrant_collection: str = "nexusmail_feedback"
 
-    # Redis
-    redis_host: str = "localhost"
-    redis_port: int = 6379
+    # Legacy Qdrant settings (for backward compatibility)
+    qdrant_host: str = "localhost"
+    qdrant_port: int = 6333
+
+    # Redis (optional)
+    redis_url: str = ""
 
     # App
     app_env: str = "development"

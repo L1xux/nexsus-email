@@ -46,6 +46,8 @@ class EmailResponse(EmailBase):
     history_id: Optional[str]
     thread_id: Optional[str]
     sender_email: Optional[str]
+    body_text: Optional[str] = None
+    body_html: Optional[str] = None
     classification_confidence: Optional[float]
     classification_reason: Optional[str]
     received_at: Optional[datetime]

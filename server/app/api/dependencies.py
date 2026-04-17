@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.models.user import User
 
 settings = get_settings()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 async def get_current_user_dep(
@@ -23,8 +23,8 @@ async def get_current_user_dep(
 def get_google_credentials(user: User = Depends(get_current_user_dep)) -> Credentials:
     if not user.google_access_token:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Google account not connected"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Google account not connected. Please connect your Gmail account to enable sync."
         )
     
     credentials = Credentials(
