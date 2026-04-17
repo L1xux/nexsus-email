@@ -1,3 +1,6 @@
+import base64
+import re
+import time
 from typing import Optional
 from google.oauth2.credentials import Credentials
 
@@ -11,12 +14,16 @@ async def fetch_recent_emails(
 ) -> list[dict]:
     result = await list_emails(credentials, max_results=max_results, query=query)
     messages = result.get("messages", [])
-    
+
     emails = []
     for msg in messages:
-        email_data = await gmail_get_email(credentials, msg["id"])
-        emails.append(email_data)
-    
+        try:
+            email_data = await gmail_get_email(credentials, msg["id"])
+            emails.append(email_data)
+        except Exception as e:
+            print(f"Failed to fetch email {msg['id']}: {e}")
+            continue
+
     return emails
 
 
@@ -79,6 +86,3 @@ def parse_gmail_message(message: dict) -> dict:
         "is_read": "UNREAD" not in label_ids,
         "is_starred": "STARRED" in label_ids,
     }
-
-
-import base64
