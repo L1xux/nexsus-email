@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,24 +6,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db
 
 
+def get_client_url() -> str:
+    """Get client URL from environment or default."""
+    url = os.getenv("CLIENT_URL", "")
+    if not url or url == "http://localhost:5173":
+        return "*"
+    return url
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Import here to ensure env vars are loaded first
-    from app.core.config import get_settings
-    settings = get_settings()
-
-    # Handle empty client_url gracefully
-    if not settings.client_url:
-        settings.client_url = "*"
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[settings.client_url],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
     # Initialize database, but don't fail if DB is not available
     try:
         await init_db()
@@ -37,6 +30,16 @@ app = FastAPI(
     description="AI-powered email management with Gmail integration",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# Add CORS middleware at startup
+client_url = get_client_url()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[client_url],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Routes are imported after app is created to avoid circular imports
