@@ -30,8 +30,9 @@ qdrant-client==1.8.2
 # Redis (optional)
 redis==5.0.3
 
-# Utilities - pin pydantic to avoid build from source
-pydantic==2.5.3
+# Utilities - pin pydantic to avoid Rust build
+pydantic==2.4.2
+pydantic-core==2.10.1
 pydantic-settings==2.1.0
 python-dotenv==1.0.1
 httpx==0.26.0
