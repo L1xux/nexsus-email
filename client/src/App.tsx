@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Layout from './components/Layout'
+import ProtectedRoute from './components/ProtectedRoute'
 import { useAuthStore } from './stores/authStore'
 
 function AuthCallback() {
@@ -23,8 +24,6 @@ function AuthCallback() {
       localStorage.setItem('user', JSON.stringify(user))
       setToken(token)
       setUser(user)
-      // Use window.location.replace so this navigation cannot be
-      // interrupted by React StrictMode double-invocation in dev.
       window.location.replace('/')
     } else {
       window.location.replace('/login')
@@ -42,7 +41,9 @@ function App() {
       <Route
         path="/"
         element={
-          <Layout />
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
         }
       >
         <Route index element={<Dashboard />} />
