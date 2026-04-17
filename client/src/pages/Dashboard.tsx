@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Clock,
   Archive,
-  Star,
   Loader2,
   RefreshCw,
 } from 'lucide-react'
