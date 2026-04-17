@@ -118,11 +118,19 @@ async def sync_emails(
     credentials: Credentials = Depends(get_google_credentials),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.email_sync import sync_gmail_emails
+    try:
+        from app.services.email_sync import sync_gmail_emails
 
-    new_count = await sync_gmail_emails(current_user.id, credentials, db, max_results=50, days=days)
+        new_count = await sync_gmail_emails(current_user.id, credentials, db, max_results=50, days=days)
 
-    return {"message": f"Synced {new_count} new emails"}
+        return {"message": f"Synced {new_count} new emails"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Sync error: {str(e)}"
+        )
 
 
 @router.post("/seed")
