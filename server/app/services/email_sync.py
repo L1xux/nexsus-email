@@ -68,14 +68,24 @@ async def sync_gmail_emails(
     max_results: int = 50,
     days: int = 3,
 ) -> int:
+    import logging
+    import traceback
+
+    logger = logging.getLogger(__name__)
+
     user_result = await db.execute(select(User).where(User.id == user_id))
     user = user_result.scalar_one_or_none()
     if not user:
+        logger.error(f"User not found: {user_id}")
         return 0
 
-    after_date = datetime.now(timezone.utc) - timedelta(days=days)
-    query = f"after:{after_date.strftime('%Y/%m/%d')}"
-    emails_data = await fetch_recent_emails(credentials, max_results, query=query)
+    try:
+        after_date = datetime.now(timezone.utc) - timedelta(days=days)
+        query = f"after:{after_date.strftime('%Y/%m/%d')}"
+        emails_data = await fetch_recent_emails(credentials, max_results, query=query)
+    except Exception as e:
+        logger.error(f"Failed to fetch emails from Gmail: {e}\n{traceback.format_exc()}")
+        raise
 
     new_count = 0
     thread_cache: dict[str, EmailThread] = {}
@@ -83,72 +93,77 @@ async def sync_gmail_emails(
     token = credentials.token
     refresh_t = credentials.refresh_token
 
-    for email_data in emails_data:
-        parsed = parse_gmail_message(email_data)
-        gmail_message_id = parsed["gmail_message_id"]
-        gmail_thread_id = parsed.get("thread_id")
+    try:
+        for email_data in emails_data:
+            parsed = parse_gmail_message(email_data)
+            gmail_message_id = parsed["gmail_message_id"]
+            gmail_thread_id = parsed.get("thread_id")
 
-        existing_result = await db.execute(
-            select(Email).where(
-                Email.user_id == user_id,
-                Email.gmail_message_id == gmail_message_id,
-            )
-        )
-        if existing_result.scalar_one_or_none():
-            continue
-
-        thread_obj: Optional[EmailThread] = None
-        is_new = False
-        if gmail_thread_id:
-            if gmail_thread_id in thread_cache:
-                thread_obj = thread_cache[gmail_thread_id]
-            else:
-                thread_obj, is_new = await _upsert_thread(
-                    user_id=user_id,
-                    gmail_thread_id=gmail_thread_id,
-                    thread_subject=parsed.get("subject"),
-                    thread_snippet=parsed.get("snippet"),
-                    token=token,
-                    refresh_token=refresh_t,
-                    db=db,
+            existing_result = await db.execute(
+                select(Email).where(
+                    Email.user_id == user_id,
+                    Email.gmail_message_id == gmail_message_id,
                 )
-                thread_cache[gmail_thread_id] = thread_obj
-                if is_new:
-                    new_threads.append((gmail_thread_id, token, refresh_t))
+            )
+            if existing_result.scalar_one_or_none():
+                continue
 
-        received_at = _parse_received_at(parsed.get("received_at"))
+            thread_obj: Optional[EmailThread] = None
+            is_new = False
+            if gmail_thread_id:
+                if gmail_thread_id in thread_cache:
+                    thread_obj = thread_cache[gmail_thread_id]
+                else:
+                    thread_obj, is_new = await _upsert_thread(
+                        user_id=user_id,
+                        gmail_thread_id=gmail_thread_id,
+                        thread_subject=parsed.get("subject"),
+                        thread_snippet=parsed.get("snippet"),
+                        token=token,
+                        refresh_token=refresh_t,
+                        db=db,
+                    )
+                    thread_cache[gmail_thread_id] = thread_obj
+                    if is_new:
+                        new_threads.append((gmail_thread_id, token, refresh_t))
 
-        email = Email(
-            user_id=user_id,
-            gmail_message_id=gmail_message_id,
-            history_id=parsed.get("history_id"),
-            thread_id=gmail_thread_id,
-            email_thread_id=thread_obj.id if thread_obj else None,
-            subject=parsed.get("subject"),
-            sender=parsed.get("sender"),
-            sender_email=parsed.get("sender_email"),
-            recipients=parsed.get("recipients"),
-            snippet=parsed.get("snippet"),
-            body_text=parsed.get("body_text"),
-            body_html=parsed.get("body_html"),
-            label_ids=parsed.get("label_ids"),
-            is_read=parsed.get("is_read", False),
-            is_starred=parsed.get("is_starred", False),
-            received_at=received_at,
-        )
+            received_at = _parse_received_at(parsed.get("received_at"))
 
-        db.add(email)
-        new_count += 1
+            email = Email(
+                user_id=user_id,
+                gmail_message_id=gmail_message_id,
+                history_id=parsed.get("history_id"),
+                thread_id=gmail_thread_id,
+                email_thread_id=thread_obj.id if thread_obj else None,
+                subject=parsed.get("subject"),
+                sender=parsed.get("sender"),
+                sender_email=parsed.get("sender_email"),
+                recipients=parsed.get("recipients"),
+                snippet=parsed.get("snippet"),
+                body_text=parsed.get("body_text"),
+                body_html=parsed.get("body_html"),
+                label_ids=parsed.get("label_ids"),
+                is_read=parsed.get("is_read", False),
+                is_starred=parsed.get("is_starred", False),
+                received_at=received_at,
+            )
 
-        if thread_obj:
-            thread_obj.message_count += 1
-            if received_at and (
-                not thread_obj.last_message_at
-                or received_at > thread_obj.last_message_at
-            ):
-                thread_obj.last_message_at = received_at
+            db.add(email)
+            new_count += 1
 
-    await db.commit()
+            if thread_obj:
+                thread_obj.message_count += 1
+                if received_at and (
+                    not thread_obj.last_message_at
+                    or received_at > thread_obj.last_message_at
+                ):
+                    thread_obj.last_message_at = received_at
+
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to sync emails: {e}\n{traceback.format_exc()}")
+        await db.rollback()
+        raise
 
     # Dispatch AI classification for every newly-created thread (fire-and-forget)
     for gmail_tid, t, rt in new_threads:
