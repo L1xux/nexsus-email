@@ -70,7 +70,14 @@ async def google_callback(
     
     from fastapi import Response
     from urllib.parse import urlencode
-    
+
+    # Build redirect URL based on environment
+    # In production, redirect to the client URL; in development, localhost
+    if settings.app_env == "production" and settings.client_url:
+        redirect_base = settings.client_url.rstrip('/')
+    else:
+        redirect_base = "http://localhost:5173"
+
     params = urlencode({
         "token": access_token,
         "user_id": str(user.id),
@@ -78,9 +85,9 @@ async def google_callback(
         "name": name or "",
         "picture": picture or "",
     })
-    
+
     return Response(
-        content=f'<html><body><script>window.location.href="http://localhost:5173/auth/callback?{params}";</script></body></html>',
+        content=f'<html><body><script>window.location.href="{redirect_base}/auth/callback?{params}";</script></body></html>',
         media_type="text/html",
     )
 
