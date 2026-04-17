@@ -13,8 +13,15 @@ VECTOR_SIZE = 1024  # bge-large-en-v1.5 uses 1024 dimensions
 COLLECTION_NAME = "email_feedback"
 
 
+def get_settings():
+    """Lazy import to avoid circular dependencies."""
+    from app.core.config import get_settings as _get_settings
+    return _get_settings()
+
+
 def get_qdrant_client() -> QdrantClient:
     """Get Qdrant client instance (supports both local and cloud)."""
+    settings = get_settings()
     # Check if using Qdrant Cloud (has URL and API key)
     if settings.qdrant_url and settings.qdrant_api_key:
         return QdrantClient(
