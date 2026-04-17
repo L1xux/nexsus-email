@@ -124,6 +124,12 @@ export interface EmailInThread {
   received_at: string | null
 }
 
+export interface Category {
+  id: number
+  name: string
+  color: string
+}
+
 export const threadsApi = {
   list: (params: { page?: number; page_size?: number; category_id?: number; status?: string; is_read?: boolean; search?: string }) =>
     client.get('/threads', { params }),

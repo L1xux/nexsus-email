@@ -21,7 +21,6 @@ const STATUS_CONFIG = {
 export default function Dashboard() {
   const [searchParams] = useSearchParams()
   const [threads, setThreads] = useState<Thread[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
   const [filterCategory, setFilterCategory] = useState<number | null>(null)
@@ -55,19 +54,6 @@ export default function Dashboard() {
   useEffect(() => {
     fetchThreads()
   }, [fetchThreads])
-
-  useEffect(() => {
-    threadsApi.list({ page: 1, page_size: 100 })
-      .then(res => setCategories(
-        res.data.threads
-          .map((t: Thread) => t.category)
-          .filter((c): c is Category => c !== null && c !== undefined)
-          .filter((c: Category, i: number, arr: Category[]) =>
-            arr.findIndex((x: Category) => x.id === c.id) === i
-          )
-      ))
-      .catch(() => {})
-  }, [])
 
   const handleStatusChange = async (threadId: number, newStatus: string) => {
     setThreads(threads.map(t =>
@@ -144,7 +130,6 @@ export default function Dashboard() {
                 key={thread.id}
                 thread={thread}
                 onClick={() => setSelectedThreadId(thread.id)}
-                onStatusChange={handleStatusChange}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
                 isDragging={draggedThreadId === thread.id}
@@ -199,7 +184,6 @@ export default function Dashboard() {
                       thread={thread}
                       compact
                       onClick={() => setSelectedThreadId(thread.id)}
-                      onStatusChange={handleStatusChange}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       isDragging={draggedThreadId === thread.id}
@@ -227,13 +211,12 @@ interface ThreadCardProps {
   thread: Thread
   compact?: boolean
   onClick: () => void
-  onStatusChange: (threadId: number, status: string) => void
   onDragStart: (threadId: number) => void
   onDragEnd: () => void
   isDragging?: boolean
 }
 
-function ThreadCard({ thread, compact = false, onClick, onStatusChange, onDragStart, onDragEnd, isDragging }: ThreadCardProps) {
+function ThreadCard({ thread, compact = false, onClick, onDragStart, onDragEnd, isDragging }: ThreadCardProps) {
   const formatDeadline = (iso: string | null) => {
     if (!iso) return null
     const d = new Date(iso)
