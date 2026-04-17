@@ -1,9 +1,9 @@
 import axios from 'axios'
 
-// In production (Vercel), use relative path. In development, use localhost.
+// In production (Vercel), use VITE_API_BASE_URL env var. In development, use localhost.
 const getApiBaseUrl = () => {
-  if (import.meta.env.PROD) {
-    return '/api'
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL
   }
   return import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 }
