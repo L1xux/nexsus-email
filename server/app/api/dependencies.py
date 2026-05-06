@@ -28,14 +28,11 @@ def get_google_credentials(user: User = Depends(get_current_user_dep)) -> Creden
             detail="Google account not connected. Please connect your Gmail account to enable sync."
         )
 
-    # Include expiry so google-auth can detect expiration and auto-refresh via AuthorizedHttp
+    # google-auth 2.28.1 uses datetime.utcnow() (naive) to compare with expiry,
+    # so expiry must be naive UTC — strip tzinfo if present
     expiry = None
     if user.google_token_expiry:
-        expiry = (
-            user.google_token_expiry
-            if user.google_token_expiry.tzinfo
-            else user.google_token_expiry.replace(tzinfo=timezone.utc)
-        )
+        expiry = user.google_token_expiry.replace(tzinfo=None)
 
     return Credentials(
         token=user.google_access_token,
