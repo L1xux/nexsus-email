@@ -100,10 +100,10 @@ export default function Dashboard() {
   const groupedThreads = filterStatus
     ? { [filterStatus]: threads }
     : {
+        inbox: threads.filter(t => t.status === 'inbox'),
         todo: threads.filter(t => t.status === 'todo'),
         waiting: threads.filter(t => t.status === 'waiting'),
         done: threads.filter(t => t.status === 'done'),
-        inbox: threads.filter(t => t.status === 'inbox'),
       }
 
   if (loading) {
@@ -192,7 +192,7 @@ export default function Dashboard() {
         </button>
       </div>
       <div className="grid grid-cols-4 gap-px bg-black" style={{ minHeight: 'calc(100vh - 220px)' }}>
-        {(['todo', 'waiting', 'done', 'inbox'] as const).map(status => {
+        {(['inbox', 'todo', 'waiting', 'done'] as const).map(status => {
           const config = STATUS_CONFIG[status]
           const Icon = config.icon
           const statusThreads = groupedThreads[status] || []
