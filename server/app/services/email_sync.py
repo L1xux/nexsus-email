@@ -69,8 +69,8 @@ async def sync_gmail_emails(
     user_id: int,
     credentials: Credentials,
     db: AsyncSession,
-    max_results: int = 50,
-    days: int = 3,
+    max_results: int = 200,
+    days: int = 7,
 ) -> int:
     import logging
     import traceback

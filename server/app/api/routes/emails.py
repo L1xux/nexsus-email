@@ -113,7 +113,7 @@ async def update_email(
 
 @router.post("/sync")
 async def sync_emails(
-    days: int = Query(3, ge=1, le=90, description="Sync emails from the last N days"),
+    days: int = Query(7, ge=1, le=90, description="Sync emails from the last N days"),
     current_user: User = Depends(get_current_user_dep),
     credentials: Credentials = Depends(get_google_credentials),
     db: AsyncSession = Depends(get_db),
@@ -121,7 +121,7 @@ async def sync_emails(
     try:
         from app.services.email_sync import sync_gmail_emails
 
-        new_count = await sync_gmail_emails(current_user.id, credentials, db, max_results=50, days=days)
+        new_count = await sync_gmail_emails(current_user.id, credentials, db, max_results=200, days=days)
 
         return {"message": f"Synced {new_count} new emails"}
     except Exception as e:
