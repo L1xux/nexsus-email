@@ -241,6 +241,7 @@ export default function Dashboard() {
           threadId={selectedThreadId}
           onClose={() => setSelectedThreadId(null)}
           onStatusChange={handleStatusChange}
+          onCategoryChange={handleCategoryChange}
         />
       )}
     </>
