@@ -4,7 +4,7 @@ const getApiBaseUrl = () => {
   return import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 }
 
-const API_BASE_URL = getApiBaseUrl()
+export const API_BASE_URL = getApiBaseUrl()
 
 // Ensure base URL ends with /api for proper routing
 const getBaseUrl = () => {

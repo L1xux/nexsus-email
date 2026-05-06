@@ -13,7 +13,7 @@ import {
   Loader2
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
-import { authApi, categoriesApi, emailsApi } from '../api/client'
+import { authApi, categoriesApi, API_BASE_URL } from '../api/client'
 
 interface Category {
   id: number
@@ -25,9 +25,13 @@ export default function Layout() {
   const location = useLocation()
   const { user, logout, setUser, setSyncedAt } = useAuthStore()
   const [categories, setCategories] = useState<Category[]>([])
-  const [syncing, setSyncing] = useState(false)
   const [showCategories, setShowCategories] = useState(false)
   const [showSyncModal, setShowSyncModal] = useState(false)
+  const [syncStep, setSyncStep] = useState<'picker' | 'syncing' | 'done'>('picker')
+  const [syncFromDate, setSyncFromDate] = useState('')
+  const [syncToDate, setSyncToDate] = useState('')
+  const [syncProgress, setSyncProgress] = useState<{ chunk: number; total: number; from_date: string; to_date: string } | null>(null)
+  const [syncTotalNew, setSyncTotalNew] = useState(0)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -47,20 +51,11 @@ export default function Layout() {
     if (!sessionStorage.getItem('justLoggedIn')) return
     sessionStorage.removeItem('justLoggedIn')
 
-    const autoSync = async () => {
-      setShowSyncModal(true)
-      setSyncing(true)
-      try {
-        await emailsApi.sync()
-        setSyncedAt(Date.now())
-      } catch (error) {
-        console.error('Auto-sync failed', error)
-      } finally {
-        setSyncing(false)
-        setShowSyncModal(false)
-      }
-    }
-    autoSync()
+    const { from, to } = getDefaultDates()
+    setSyncFromDate(from)
+    setSyncToDate(to)
+    setShowSyncModal(true)
+    executeStreamSync(from, to)
   }, [])
 
   useEffect(() => {
@@ -75,16 +70,67 @@ export default function Layout() {
     fetchCategories()
   }, [])
 
-  const handleSync = async () => {
-    setSyncing(true)
-    try {
-      await emailsApi.sync()
-      setSyncedAt(Date.now())
-    } catch (error) {
-      console.error('Sync failed')
-    } finally {
-      setSyncing(false)
+  const getDefaultDates = () => {
+    const today = new Date()
+    const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+    return {
+      from: sevenDaysAgo.toISOString().slice(0, 10),
+      to: today.toISOString().slice(0, 10),
     }
+  }
+
+  const executeStreamSync = async (from: string, to: string) => {
+    setSyncStep('syncing')
+    setSyncProgress(null)
+    setSyncTotalNew(0)
+
+    const token = localStorage.getItem('token')
+    const params = new URLSearchParams({ from_date: from, to_date: to })
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/emails/sync-stream?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok || !response.body) throw new Error('Sync request failed')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.done) {
+              setSyncStep('done')
+            } else if (!data.error) {
+              setSyncProgress({ chunk: data.chunk, total: data.total, from_date: data.from_date, to_date: data.to_date })
+              setSyncTotalNew(prev => prev + (data.new_count ?? 0))
+              setSyncedAt(Date.now())
+            }
+          } catch {}
+        }
+      }
+    } catch (error) {
+      console.error('Sync error:', error)
+    }
+    setSyncStep('done')
+  }
+
+  const handleSync = () => {
+    const { from, to } = getDefaultDates()
+    setSyncFromDate(from)
+    setSyncToDate(to)
+    setSyncStep('picker')
+    setSyncProgress(null)
+    setSyncTotalNew(0)
+    setShowSyncModal(true)
   }
 
   const handleLogout = async () => {
@@ -105,12 +151,81 @@ export default function Layout() {
     <div className="min-h-screen bg-white">
       {showSyncModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white border border-zinc-200 rounded-xl shadow-xl px-10 py-8 flex flex-col items-center gap-4 min-w-[260px]">
-            <Loader2 className="w-8 h-8 animate-spin text-black" />
-            <div className="text-center">
-              <p className="text-base font-semibold text-black">이메일 동기화 중</p>
-              <p className="text-sm text-zinc-500 mt-1">잠시만 기다려 주세요...</p>
-            </div>
+          <div className="bg-white border border-zinc-200 rounded-xl shadow-xl px-8 py-6 flex flex-col gap-5 w-[340px]">
+            <h2 className="text-base font-semibold text-black">이메일 동기화</h2>
+
+            {syncStep === 'picker' && (
+              <>
+                <div className="flex flex-col gap-3">
+                  <label className="flex flex-col gap-1 text-sm text-zinc-600">
+                    시작일
+                    <input
+                      type="date"
+                      value={syncFromDate}
+                      onChange={e => setSyncFromDate(e.target.value)}
+                      className="border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm text-zinc-600">
+                    종료일
+                    <input
+                      type="date"
+                      value={syncToDate}
+                      onChange={e => setSyncToDate(e.target.value)}
+                      className="border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black"
+                    />
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowSyncModal(false)}
+                    className="px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={() => executeStreamSync(syncFromDate, syncToDate)}
+                    className="px-4 py-2 text-sm bg-black text-white rounded-lg hover:bg-zinc-800 transition-colors"
+                  >
+                    시작
+                  </button>
+                </div>
+              </>
+            )}
+
+            {syncStep === 'syncing' && (
+              <div className="flex flex-col items-center gap-3 py-2">
+                <Loader2 className="w-7 h-7 animate-spin text-black" />
+                {syncProgress ? (
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-black">
+                      {syncProgress.from_date} ~ {syncProgress.to_date}
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      {syncProgress.chunk} / {syncProgress.total} 청크 진행 중...
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-500">동기화 준비 중...</p>
+                )}
+              </div>
+            )}
+
+            {syncStep === 'done' && (
+              <div className="flex flex-col items-center gap-3 py-2">
+                <CheckCircle2 className="w-7 h-7 text-black" />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-black">동기화 완료!</p>
+                  <p className="text-xs text-zinc-500 mt-1">새 이메일 {syncTotalNew}개</p>
+                </div>
+                <button
+                  onClick={() => { setShowSyncModal(false); setSyncStep('picker') }}
+                  className="px-4 py-2 text-sm bg-black text-white rounded-lg hover:bg-zinc-800 transition-colors"
+                >
+                  닫기
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -192,11 +307,11 @@ export default function Layout() {
               {/* Sync Button */}
               <button
                 onClick={handleSync}
-                disabled={syncing}
+                disabled={showSyncModal && syncStep === 'syncing'}
                 className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50"
               >
-                <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing...' : 'Sync'}
+                <RefreshCw className={`w-4 h-4 ${showSyncModal && syncStep === 'syncing' ? 'animate-spin' : ''}`} />
+                {showSyncModal && syncStep === 'syncing' ? 'Syncing...' : 'Sync'}
               </button>
 
               {/* User Menu */}

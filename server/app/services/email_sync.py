@@ -71,6 +71,8 @@ async def sync_gmail_emails(
     db: AsyncSession,
     max_results: int = 200,
     days: int = 7,
+    from_date: Optional[datetime] = None,
+    to_date: Optional[datetime] = None,
 ) -> int:
     import logging
     import traceback
@@ -84,8 +86,13 @@ async def sync_gmail_emails(
         return 0
 
     try:
-        after_date = datetime.now(timezone.utc) - timedelta(days=days)
-        query = f"after:{after_date.strftime('%Y/%m/%d')}"
+        if from_date and to_date:
+            query = f"after:{from_date.strftime('%Y/%m/%d')} before:{to_date.strftime('%Y/%m/%d')}"
+        elif from_date:
+            query = f"after:{from_date.strftime('%Y/%m/%d')}"
+        else:
+            after_date = datetime.now(timezone.utc) - timedelta(days=days)
+            query = f"after:{after_date.strftime('%Y/%m/%d')}"
         emails_data = await fetch_recent_emails(credentials, max_results, query=query)
     except Exception as e:
         logger.error(f"Failed to fetch emails from Gmail: {e}\n{traceback.format_exc()}")
