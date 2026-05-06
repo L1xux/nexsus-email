@@ -9,6 +9,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { threadsApi, type Thread } from '../api/client'
+import { useAuthStore } from '../stores/authStore'
 import ThreadModal from '../components/ThreadModal'
 
 const STATUS_CONFIG = {
@@ -20,6 +21,7 @@ const STATUS_CONFIG = {
 
 export default function Dashboard() {
   const [searchParams] = useSearchParams()
+  const { lastSyncedAt } = useAuthStore()
   const [threads, setThreads] = useState<Thread[]>([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
@@ -54,6 +56,10 @@ export default function Dashboard() {
   useEffect(() => {
     fetchThreads()
   }, [fetchThreads])
+
+  useEffect(() => {
+    if (lastSyncedAt) fetchThreads()
+  }, [lastSyncedAt])
 
   const handleStatusChange = async (threadId: number, newStatus: string) => {
     setThreads(threads.map(t =>

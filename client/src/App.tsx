@@ -24,6 +24,7 @@ function AuthCallback() {
       localStorage.setItem('user', JSON.stringify(user))
       setToken(token)
       setUser(user)
+      sessionStorage.setItem('justLoggedIn', '1')
       window.location.replace('/')
     } else {
       window.location.replace('/login')

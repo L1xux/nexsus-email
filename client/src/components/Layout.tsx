@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useLocation, Link } from 'react-router-dom'
-import { 
-  Inbox, 
-  Settings, 
-  RefreshCw, 
-  LogOut, 
+import {
+  Inbox,
+  Settings,
+  RefreshCw,
+  LogOut,
   Mail,
   ChevronDown,
   Archive,
   CheckCircle2,
-  Clock
+  Clock,
+  Loader2
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { authApi, categoriesApi, emailsApi } from '../api/client'
@@ -22,10 +23,11 @@ interface Category {
 
 export default function Layout() {
   const location = useLocation()
-  const { user, logout, setUser } = useAuthStore()
+  const { user, logout, setUser, setSyncedAt } = useAuthStore()
   const [categories, setCategories] = useState<Category[]>([])
   const [syncing, setSyncing] = useState(false)
   const [showCategories, setShowCategories] = useState(false)
+  const [showSyncModal, setShowSyncModal] = useState(false)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -39,6 +41,26 @@ export default function Layout() {
     if (!user) {
       fetchUser()
     }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionStorage.getItem('justLoggedIn')) return
+    sessionStorage.removeItem('justLoggedIn')
+
+    const autoSync = async () => {
+      setShowSyncModal(true)
+      setSyncing(true)
+      try {
+        await emailsApi.sync()
+        setSyncedAt(Date.now())
+      } catch (error) {
+        console.error('Auto-sync failed', error)
+      } finally {
+        setSyncing(false)
+        setShowSyncModal(false)
+      }
+    }
+    autoSync()
   }, [])
 
   useEffect(() => {
@@ -80,6 +102,17 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-white">
+      {showSyncModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white border border-zinc-200 rounded-xl shadow-xl px-10 py-8 flex flex-col items-center gap-4 min-w-[260px]">
+            <Loader2 className="w-8 h-8 animate-spin text-black" />
+            <div className="text-center">
+              <p className="text-base font-semibold text-black">이메일 동기화 중</p>
+              <p className="text-sm text-zinc-500 mt-1">잠시만 기다려 주세요...</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Top Navigation Bar */}
       <header className="border-b border-zinc-200 sticky top-0 z-50 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
