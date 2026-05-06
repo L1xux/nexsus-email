@@ -23,9 +23,9 @@ async def _upsert_thread(
     db: AsyncSession,
 ) -> tuple[EmailThread, bool]:
     """
-    Clean INSERT-or-skip using unique-constraint violation.
-    Returns (thread, is_new).  Call dispatch_classification() for new threads
-    AFTER the session commits.
+    INSERT-or-skip using a savepoint so only the failed INSERT is rolled back,
+    not the entire session (which would drop already-pending email rows).
+    Returns (thread, is_new).
     """
     thread = EmailThread(
         user_id=user_id,
@@ -35,18 +35,18 @@ async def _upsert_thread(
         message_count=0,
     )
     try:
-        db.add(thread)
-        await db.flush()
-        return thread, True  # new thread
+        async with db.begin_nested():  # SAVEPOINT — rollback only this insert, not the whole tx
+            db.add(thread)
+            await db.flush()
+        return thread, True
     except IntegrityError:
-        await db.rollback()
         result = await db.execute(
             select(EmailThread).where(
                 EmailThread.user_id == user_id,
                 EmailThread.gmail_thread_id == gmail_thread_id,
             )
         )
-        return result.scalar_one(), False  # existing thread
+        return result.scalar_one(), False
 
 
 def _parse_received_at(date_value) -> Optional[datetime]:
