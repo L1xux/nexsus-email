@@ -40,8 +40,8 @@ export default function Dashboard() {
     setFilterCategory(currentCategory ? parseInt(currentCategory) : null)
   }, [currentStatus, currentCategory])
 
-  const fetchThreads = useCallback(async () => {
-    setLoading(true)
+  const fetchThreads = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const params: Record<string, unknown> = { page: 1, page_size: 100 }
       if (filterStatus) params.status = filterStatus
@@ -51,9 +51,9 @@ export default function Dashboard() {
       const { data } = await threadsApi.list(params as any)
       setThreads(data.threads)
     } catch {
-      setThreads([])
+      if (!silent) setThreads([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [filterStatus, filterCategory, sortBy])
 
@@ -62,7 +62,7 @@ export default function Dashboard() {
   }, [fetchThreads])
 
   useEffect(() => {
-    if (lastSyncedAt) fetchThreads()
+    if (lastSyncedAt) fetchThreads(true)
   }, [lastSyncedAt, fetchThreads])
 
   const handleStatusChange = async (threadId: number, newStatus: string) => {

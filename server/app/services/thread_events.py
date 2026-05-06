@@ -13,6 +13,9 @@ Classification source priority:
   2. Stored emails from DB (always available if emails exist)
 """
 import asyncio
+
+# Limit concurrent classification tasks to avoid exhausting the DB connection pool
+_classification_semaphore = asyncio.Semaphore(5)
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -60,100 +63,101 @@ async def _classify_thread_async(
     from app.core.database import AsyncSessionLocal
     from google.oauth2.credentials import Credentials
 
-    async with AsyncSessionLocal() as db:
-        try:
-            # Re-fetch thread in this new session
-            result = await db.execute(
-                select(EmailThread).where(
-                    EmailThread.user_id == user_id,
-                    EmailThread.gmail_thread_id == gmail_thread_id,
+    async with _classification_semaphore:
+        async with AsyncSessionLocal() as db:
+            try:
+                # Re-fetch thread in this new session
+                result = await db.execute(
+                    select(EmailThread).where(
+                        EmailThread.user_id == user_id,
+                        EmailThread.gmail_thread_id == gmail_thread_id,
+                    )
                 )
-            )
-            thread = result.scalar_one_or_none()
-            if thread is None:
-                return
+                thread = result.scalar_one_or_none()
+                if thread is None:
+                    return
 
-            # Skip if already classified
-            if thread.classification_confidence is not None:
-                return
+                # Skip if already classified
+                if thread.classification_confidence is not None:
+                    return
 
-            messages: list[dict] = []
+                messages: list[dict] = []
 
-            # Source 1: Try Gmail API if credentials available
-            if token:
+                # Source 1: Try Gmail API if credentials available
+                if token:
+                    try:
+                        from app.core.google import get_thread
+                        credentials = Credentials(token=token, refresh_token=refresh_token)
+                        gmail_thread = await get_thread(credentials, gmail_thread_id)
+                        messages = gmail_thread.get("messages", [])
+                    except Exception as e:
+                        print(f"[thread_events] Gmail API failed for {gmail_thread_id}: {e}")
+
+                # Source 2: Fall back to stored emails from DB
+                if not messages:
+                    emails_result = await db.execute(
+                        select(Email).where(Email.email_thread_id == thread.id)
+                    )
+                    stored_emails = list(emails_result.scalars().all())
+                    if stored_emails:
+                        messages = [_build_message_dict(e) for e in stored_emails]
+                        # Update thread counters from stored emails
+                        thread.message_count = len(stored_emails)
+                        latest_ts: Optional[datetime] = None
+                        for e in stored_emails:
+                            if e.received_at and (latest_ts is None or e.received_at > latest_ts):
+                                latest_ts = e.received_at
+                        if latest_ts:
+                            thread.last_message_at = latest_ts
+
+                if not messages:
+                    # No data to classify — leave unclassified
+                    print(f"[thread_events] No messages for thread {gmail_thread_id}, skipping")
+                    return
+
+                # Run AI classification
+                classification_result, category_id = await classify_thread_with_category(
+                    thread_subject=thread.subject or "",
+                    thread_messages=messages,
+                    user_id=user_id,
+                    db=db,
+                )
+
+                # Map AI status to DB enum (lowercase values)
                 try:
-                    from app.core.google import get_thread
-                    credentials = Credentials(token=token, refresh_token=refresh_token)
-                    gmail_thread = await get_thread(credentials, gmail_thread_id)
-                    messages = gmail_thread.get("messages", [])
-                except Exception as e:
-                    print(f"[thread_events] Gmail API failed for {gmail_thread_id}: {e}")
+                    db_status = ThreadStatus(classification_result.status.lower())
+                except ValueError:
+                    db_status = ThreadStatus.INBOX
 
-            # Source 2: Fall back to stored emails from DB
-            if not messages:
+                thread.status = db_status
+                thread.classification_confidence = classification_result.confidence
+                thread.classification_reason = classification_result.reason
+                thread.deadline = classification_result.deadline
+                thread.category_id = category_id
+
+                # Update all stored emails with classification results
                 emails_result = await db.execute(
                     select(Email).where(Email.email_thread_id == thread.id)
                 )
-                stored_emails = list(emails_result.scalars().all())
-                if stored_emails:
-                    messages = [_build_message_dict(e) for e in stored_emails]
-                    # Update thread counters from stored emails
-                    thread.message_count = len(stored_emails)
-                    latest_ts: Optional[datetime] = None
-                    for e in stored_emails:
-                        if e.received_at and (latest_ts is None or e.received_at > latest_ts):
-                            latest_ts = e.received_at
-                    if latest_ts:
-                        thread.last_message_at = latest_ts
+                for email_record in emails_result.scalars().all():
+                    email_record.status = db_status
+                    email_record.classification_confidence = classification_result.confidence
+                    email_record.classification_reason = classification_result.reason
+                    email_record.category_id = category_id
 
-            if not messages:
-                # No data to classify — leave unclassified
-                print(f"[thread_events] No messages for thread {gmail_thread_id}, skipping")
-                return
+                await db.commit()
+                print(
+                    f"[thread_events] Classified thread {gmail_thread_id}: "
+                    f"{db_status.value} ({classification_result.confidence:.0%}) "
+                    f'"{classification_result.reason}"'
+                )
 
-            # Run AI classification
-            classification_result, category_id = await classify_thread_with_category(
-                thread_subject=thread.subject or "",
-                thread_messages=messages,
-                user_id=user_id,
-                db=db,
-            )
-
-            # Map AI status to DB enum (lowercase values)
-            try:
-                db_status = ThreadStatus(classification_result.status.lower())
-            except ValueError:
-                db_status = ThreadStatus.INBOX
-
-            thread.status = db_status
-            thread.classification_confidence = classification_result.confidence
-            thread.classification_reason = classification_result.reason
-            thread.deadline = classification_result.deadline
-            thread.category_id = category_id
-
-            # Update all stored emails with classification results
-            emails_result = await db.execute(
-                select(Email).where(Email.email_thread_id == thread.id)
-            )
-            for email_record in emails_result.scalars().all():
-                email_record.status = db_status
-                email_record.classification_confidence = classification_result.confidence
-                email_record.classification_reason = classification_result.reason
-                email_record.category_id = category_id
-
-            await db.commit()
-            print(
-                f"[thread_events] Classified thread {gmail_thread_id}: "
-                f"{db_status.value} ({classification_result.confidence:.0%}) "
-                f'"{classification_result.reason}"'
-            )
-
-        except Exception as e:
-            print(f"[thread_events] Classification failed for thread {gmail_thread_id}: {e}")
-            try:
-                await db.rollback()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[thread_events] Classification failed for thread {gmail_thread_id}: {e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
 
 
 def dispatch_classification(

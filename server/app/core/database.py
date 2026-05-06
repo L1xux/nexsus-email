@@ -26,6 +26,8 @@ def get_engine():
             echo=settings.app_env == "development",
             pool_pre_ping=True,
             pool_recycle=3600,
+            pool_size=10,
+            max_overflow=20,
         )
     return _engine
 
