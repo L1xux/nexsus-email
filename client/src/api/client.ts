@@ -136,7 +136,7 @@ export const threadsApi = {
   list: (params: { page?: number; page_size?: number; category_id?: number; status?: string; is_read?: boolean; search?: string; sort_by?: string }) =>
     client.get('/threads', { params }),
   get: (id: number) => client.get<ThreadWithEmails>(`/threads/${id}`),
-  update: (id: number, data: { is_read?: boolean; is_starred?: boolean; category_id?: number; status?: string }) =>
+  update: (id: number, data: { is_read?: boolean; is_starred?: boolean; category_id?: number | null; status?: string }) =>
     client.patch(`/threads/${id}`, data),
 }
 

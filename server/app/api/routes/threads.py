@@ -123,16 +123,19 @@ async def update_thread(
         thread.is_starred = thread_update.is_starred
     if thread_update.status is not None:
         thread.status = ThreadStatus(thread_update.status.value.lower())
-    if thread_update.category_id is not None:
-        cat_result = await db.execute(
-            select(Category).where(
-                Category.id == thread_update.category_id,
-                Category.user_id == current_user.id
+    if 'category_id' in thread_update.model_fields_set:
+        if thread_update.category_id is None:
+            thread.category_id = None
+        else:
+            cat_result = await db.execute(
+                select(Category).where(
+                    Category.id == thread_update.category_id,
+                    Category.user_id == current_user.id
+                )
             )
-        )
-        if not cat_result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Category not found")
-        thread.category_id = thread_update.category_id
+            if not cat_result.scalar_one_or_none():
+                raise HTTPException(status_code=404, detail="Category not found")
+            thread.category_id = thread_update.category_id
     
     await db.commit()
     await db.refresh(thread)

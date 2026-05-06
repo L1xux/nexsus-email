@@ -10,7 +10,7 @@ import {
   CalendarClock,
   ArrowDownUp,
 } from 'lucide-react'
-import { threadsApi, type Thread } from '../api/client'
+import { threadsApi, type Thread, type Category } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 import ThreadModal from '../components/ThreadModal'
 
@@ -74,6 +74,14 @@ export default function Dashboard() {
     } catch {
       fetchThreads()
     }
+  }
+
+  const handleCategoryChange = (threadId: number, categoryId: number | null, category: Category | null) => {
+    setThreads(prev => prev.map(t =>
+      t.id === threadId
+        ? { ...t, category_id: categoryId, category: category ?? undefined }
+        : t
+    ))
   }
 
   const handleDragStart = (threadId: number) => setDraggedThreadId(threadId)
@@ -161,6 +169,7 @@ export default function Dashboard() {
             threadId={selectedThreadId}
             onClose={() => setSelectedThreadId(null)}
             onStatusChange={handleStatusChange}
+            onCategoryChange={handleCategoryChange}
           />
         )}
       </div>

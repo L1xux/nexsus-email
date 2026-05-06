@@ -1,24 +1,57 @@
-import { useEffect, useState } from 'react'
-import { X, Star, ExternalLink } from 'lucide-react'
-import { threadsApi, type ThreadWithEmails } from '../api/client'
+import { useEffect, useState, useRef } from 'react'
+import { X, Star, ExternalLink, Tag, ChevronDown } from 'lucide-react'
+import { threadsApi, categoriesApi, type ThreadWithEmails, type Category } from '../api/client'
 
 interface ThreadModalProps {
   threadId: number
   onClose: () => void
   onStatusChange: (threadId: number, newStatus: string) => void
+  onCategoryChange?: (threadId: number, categoryId: number | null, category: Category | null) => void
 }
 
-export default function ThreadModal({ threadId, onClose, onStatusChange }: ThreadModalProps) {
+export default function ThreadModal({ threadId, onClose, onStatusChange, onCategoryChange }: ThreadModalProps) {
   const [thread, setThread] = useState<ThreadWithEmails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [categoryOpen, setCategoryOpen] = useState(false)
+  const [savingCategory, setSavingCategory] = useState(false)
+  const categoryRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     threadsApi.get(threadId)
       .then(res => setThread(res.data))
       .catch(() => setError('Failed to load thread'))
       .finally(() => setLoading(false))
+    categoriesApi.list().then(res => setCategories(res.data)).catch(() => {})
   }, [threadId])
+
+  // Close category dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) {
+        setCategoryOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const handleCategorySelect = async (cat: Category | null) => {
+    if (!thread) return
+    setCategoryOpen(false)
+    setSavingCategory(true)
+    try {
+      await threadsApi.update(thread.id, { category_id: cat?.id ?? null })
+      const updated = { ...thread, category_id: cat?.id ?? null, category: cat ?? undefined }
+      setThread(updated as ThreadWithEmails)
+      onCategoryChange?.(thread.id, cat?.id ?? null, cat)
+    } catch {
+      // silent — UI stays consistent
+    } finally {
+      setSavingCategory(false)
+    }
+  }
 
   // Close on Escape
   useEffect(() => {
@@ -157,8 +190,9 @@ export default function ThreadModal({ threadId, onClose, onStatusChange }: Threa
 
         {/* Footer */}
         {!loading && thread && (
-          <div className="flex items-center justify-between px-6 py-3 border-t border-black flex-shrink-0 bg-zinc-50">
-            <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between px-6 py-3 border-t border-black flex-shrink-0 bg-zinc-50 gap-4">
+            {/* Status buttons */}
+            <div className="flex items-center gap-2">
               {['todo', 'waiting', 'done'].map(s => (
                 <button
                   key={s}
@@ -173,11 +207,66 @@ export default function ThreadModal({ threadId, onClose, onStatusChange }: Threa
                 </button>
               ))}
             </div>
+
+            {/* Category selector */}
+            <div className="relative flex-shrink-0" ref={categoryRef}>
+              <button
+                onClick={() => setCategoryOpen(o => !o)}
+                disabled={savingCategory}
+                className="flex items-center gap-1.5 text-xs px-3 py-1 border border-black hover:bg-black hover:text-white transition-colors disabled:opacity-50"
+              >
+                {thread.category ? (
+                  <>
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: thread.category.color }}
+                    />
+                    <span>{thread.category.name}</span>
+                  </>
+                ) : (
+                  <>
+                    <Tag className="w-3 h-3" />
+                    <span>카테고리</span>
+                  </>
+                )}
+                <ChevronDown className="w-3 h-3" />
+              </button>
+
+              {categoryOpen && (
+                <div className="absolute bottom-full mb-1 right-0 w-44 bg-white border border-black z-10">
+                  <button
+                    onClick={() => handleCategorySelect(null)}
+                    className="w-full text-left px-3 py-2 text-xs text-zinc-500 hover:bg-zinc-100 transition-colors"
+                  >
+                    없음
+                  </button>
+                  {categories.map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => handleCategorySelect(cat)}
+                      className={`w-full text-left flex items-center gap-2 px-3 py-2 text-xs hover:bg-zinc-100 transition-colors ${
+                        thread.category?.id === cat.id ? 'font-medium' : ''
+                      }`}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: cat.color }}
+                      />
+                      {cat.name}
+                      {thread.category?.id === cat.id && (
+                        <span className="ml-auto text-black">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <a
               href={`https://mail.google.com/mail/u/0/#inbox/${thread.gmail_thread_id}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-black transition-colors"
+              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-black transition-colors flex-shrink-0"
             >
               <ExternalLink className="w-3 h-3" />
               Gmail
