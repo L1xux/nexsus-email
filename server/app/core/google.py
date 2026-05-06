@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -47,27 +48,29 @@ async def list_emails(
     page_token: Optional[str] = None
 ) -> dict:
     service = get_gmail_service(credentials)
-    
-    results = service.users().messages().list(
-        userId="me",
-        maxResults=max_results,
-        q=query,
-        pageToken=page_token,
-    ).execute()
-    
-    return results
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: service.users().messages().list(
+            userId="me",
+            maxResults=max_results,
+            q=query,
+            pageToken=page_token,
+        ).execute()
+    )
 
 
 async def get_email(credentials: Credentials, message_id: str) -> dict:
     service = get_gmail_service(credentials)
-    
-    message = service.users().messages().get(
-        userId="me",
-        id=message_id,
-        format="full",
-    ).execute()
-    
-    return message
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: service.users().messages().get(
+            userId="me",
+            id=message_id,
+            format="full",
+        ).execute()
+    )
 
 
 async def modify_email_labels(

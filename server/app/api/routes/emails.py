@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -190,6 +191,7 @@ async def sync_stream(
                     "new_count": 0,
                 })
             yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0)  # yield to event loop so chunk is flushed before next call
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(
