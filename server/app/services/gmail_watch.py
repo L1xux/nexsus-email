@@ -154,6 +154,3 @@ async def fetch_message_by_id(
     except HttpError as e:
         print(f"Error fetching message: {e}")
         raise
-
-
-async def list_new_messages(
