@@ -32,6 +32,7 @@ async def _upsert_thread(
         gmail_thread_id=gmail_thread_id,
         subject=thread_subject,
         snippet=thread_snippet,
+        message_count=0,
     )
     try:
         db.add(thread)
