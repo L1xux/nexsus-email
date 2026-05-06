@@ -59,6 +59,78 @@ async def list_emails(
     )
 
 
+@router.get("/sync-stream")
+async def sync_stream(
+    days: int = Query(7, ge=1, le=90),
+    from_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    to_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    current_user: User = Depends(get_current_user_dep),
+    credentials: Credentials = Depends(get_google_credentials),
+):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if from_date and to_date:
+        try:
+            start_dt = datetime.strptime(from_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        end_dt = now
+        start_dt = now - timedelta(days=days)
+
+    chunks: list[tuple[datetime, datetime]] = []
+    chunk_end = end_dt
+    while chunk_end > start_dt:
+        chunk_start = max(chunk_end - timedelta(days=2), start_dt)
+        chunks.append((chunk_start, chunk_end))
+        chunk_end = chunk_start
+
+    user_id = current_user.id
+
+    async def generate():
+        import logging
+        import traceback as tb
+        logger = logging.getLogger(__name__)
+        from app.services.email_sync import sync_gmail_emails
+        for i, (cs, ce) in enumerate(chunks):
+            try:
+                async with AsyncSessionLocal() as db:
+                    count = await sync_gmail_emails(
+                        user_id, credentials, db,
+                        max_results=200,
+                        from_date=cs,
+                        to_date=ce,
+                    )
+                event_data = json.dumps({
+                    "chunk": i + 1,
+                    "total": len(chunks),
+                    "from_date": cs.strftime("%Y-%m-%d"),
+                    "to_date": (ce - timedelta(days=1)).strftime("%Y-%m-%d"),
+                    "new_count": count,
+                })
+            except Exception as e:
+                logger.error(f"Sync chunk {i+1}/{len(chunks)} failed: {e}\n{tb.format_exc()}")
+                event_data = json.dumps({
+                    "chunk": i + 1,
+                    "total": len(chunks),
+                    "error": str(e),
+                    "new_count": 0,
+                })
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0)
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @router.get("/{email_id}", response_model=EmailResponse)
 async def get_email(
     email_id: int,
@@ -134,79 +206,6 @@ async def sync_emails(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Sync error: {str(e)}"
         )
-
-
-@router.get("/sync-stream")
-async def sync_stream(
-    days: int = Query(7, ge=1, le=90),
-    from_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
-    to_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    current_user: User = Depends(get_current_user_dep),
-    credentials: Credentials = Depends(get_google_credentials),
-):
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if from_date and to_date:
-        try:
-            start_dt = datetime.strptime(from_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    else:
-        end_dt = now
-        start_dt = now - timedelta(days=days)
-
-    # Build 2-day chunks, newest first
-    chunks: list[tuple[datetime, datetime]] = []
-    chunk_end = end_dt
-    while chunk_end > start_dt:
-        chunk_start = max(chunk_end - timedelta(days=2), start_dt)
-        chunks.append((chunk_start, chunk_end))
-        chunk_end = chunk_start
-
-    user_id = current_user.id
-
-    async def generate():
-        import logging
-        import traceback as tb
-        logger = logging.getLogger(__name__)
-        from app.services.email_sync import sync_gmail_emails
-        for i, (cs, ce) in enumerate(chunks):
-            try:
-                async with AsyncSessionLocal() as db:
-                    count = await sync_gmail_emails(
-                        user_id, credentials, db,
-                        max_results=200,
-                        from_date=cs,
-                        to_date=ce,
-                    )
-                event_data = json.dumps({
-                    "chunk": i + 1,
-                    "total": len(chunks),
-                    "from_date": cs.strftime("%Y-%m-%d"),
-                    "to_date": (ce - timedelta(days=1)).strftime("%Y-%m-%d"),
-                    "new_count": count,
-                })
-            except Exception as e:
-                logger.error(f"Sync chunk {i+1}/{len(chunks)} failed: {e}\n{tb.format_exc()}")
-                event_data = json.dumps({
-                    "chunk": i + 1,
-                    "total": len(chunks),
-                    "error": str(e),
-                    "new_count": 0,
-                })
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0)
-        yield f"data: {json.dumps({'done': True})}\n\n"
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
 
 
 @router.post("/seed")
