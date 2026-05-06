@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, asc, func, nullslast
 from sqlalchemy.orm import selectinload
 from google.oauth2.credentials import Credentials
 
@@ -33,11 +33,12 @@ async def list_threads(
     is_read: Optional[bool] = None,
     status: Optional[ThreadStatusSchema] = None,
     search: Optional[str] = None,
+    sort_by: Optional[str] = Query(None, description="Sort field: 'deadline' or default (last_message_at)"),
     current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(EmailThread).where(EmailThread.user_id == current_user.id)
-    
+
     if category_id:
         query = query.where(EmailThread.category_id == category_id)
     if is_read is not None:
@@ -46,11 +47,22 @@ async def list_threads(
         query = query.where(EmailThread.status == ThreadStatus(status.value))
     if search:
         query = query.where(EmailThread.subject.ilike(f"%{search}%"))
-    
+
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query)
-    
-    query = query.order_by(desc(EmailThread.last_message_at)).offset((page - 1) * page_size).limit(page_size)
+
+    if sort_by == "deadline":
+        order = nullslast(asc(EmailThread.deadline))
+    else:
+        order = desc(EmailThread.last_message_at)
+
+    query = (
+        query
+        .options(selectinload(EmailThread.category))
+        .order_by(order)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     result = await db.execute(query)
     threads = result.scalars().all()
     
@@ -75,7 +87,7 @@ async def get_thread(
             EmailThread.id == thread_id,
             EmailThread.user_id == current_user.id
         )
-        .options(selectinload(EmailThread.emails))
+        .options(selectinload(EmailThread.emails), selectinload(EmailThread.category))
     )
     thread = result.scalar_one_or_none()
     
@@ -93,16 +105,18 @@ async def update_thread(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(EmailThread).where(
+        select(EmailThread)
+        .where(
             EmailThread.id == thread_id,
             EmailThread.user_id == current_user.id
         )
+        .options(selectinload(EmailThread.category))
     )
     thread = result.scalar_one_or_none()
-    
+
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    
+
     if thread_update.is_read is not None:
         thread.is_read = thread_update.is_read
     if thread_update.is_starred is not None:

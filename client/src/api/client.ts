@@ -1,10 +1,6 @@
 import axios from 'axios'
 
-// In production (Vercel), use VITE_API_BASE_URL env var. In development, use localhost.
 const getApiBaseUrl = () => {
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL
-  }
   return import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 }
 
@@ -137,7 +133,7 @@ export interface Category {
 }
 
 export const threadsApi = {
-  list: (params: { page?: number; page_size?: number; category_id?: number; status?: string; is_read?: boolean; search?: string }) =>
+  list: (params: { page?: number; page_size?: number; category_id?: number; status?: string; is_read?: boolean; search?: string; sort_by?: string }) =>
     client.get('/threads', { params }),
   get: (id: number) => client.get<ThreadWithEmails>(`/threads/${id}`),
   update: (id: number, data: { is_read?: boolean; is_starred?: boolean; category_id?: number; status?: string }) =>

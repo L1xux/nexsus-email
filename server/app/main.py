@@ -6,12 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db
 
 
-def get_client_url() -> str:
-    """Get client URL from environment or default."""
+def get_allowed_origins() -> list[str]:
+    """Get CORS allowed origins. Credentials=True requires explicit origins, never '*'."""
     url = os.getenv("CLIENT_URL", "")
-    if not url or url == "http://localhost:5173":
-        return "*"
-    return url
+    if not url or url in ("*", "http://localhost:5173"):
+        return ["http://localhost:5173", "http://localhost:5174"]
+    return [url]
 
 
 @asynccontextmanager
@@ -33,11 +33,10 @@ app = FastAPI(
 )
 
 # Add CORS middleware at startup
-client_url = get_client_url()
-origins = ["*"] if client_url == "*" else [client_url]
+# NOTE: allow_credentials=True requires explicit origins — wildcard '*' is rejected by browsers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

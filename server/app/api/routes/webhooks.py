@@ -2,7 +2,7 @@ import base64
 import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException, Header, Depends, BackgroundTasks
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from google.oauth2.credentials import Credentials
@@ -34,7 +34,7 @@ class GmailWebhookPayload(BaseModel):
     history_id: str
 
 
-def _upsert_thread(
+async def _upsert_thread(
     user_id: int,
     gmail_thread_id: str,
     thread_subject: str,
@@ -55,11 +55,11 @@ def _upsert_thread(
     )
     try:
         db.add(thread)
-        db.flush()
+        await db.flush()
         return thread, True
     except IntegrityError:
-        db.rollback()
-        result = db.execute(
+        await db.rollback()
+        result = await db.execute(
             select(EmailThread).where(
                 EmailThread.user_id == user_id,
                 EmailThread.gmail_thread_id == gmail_thread_id,
@@ -108,7 +108,7 @@ async def process_new_email(
     thread_refresh = credentials.refresh_token
 
     if gmail_thread_id:
-        thread_obj, is_new_thread = _upsert_thread(
+        thread_obj, is_new_thread = await _upsert_thread(
             user_id=user_id,
             gmail_thread_id=gmail_thread_id,
             thread_subject=parsed.get("subject") or "",
@@ -118,18 +118,28 @@ async def process_new_email(
         )
         if not is_new_thread:
             thread_obj.message_count += 1
-            if parsed.get("received_at"):
-                ts = parsed["received_at"]
-                received_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-                if not thread_obj.last_message_at or received_dt > thread_obj.last_message_at:
+            raw_ts = parsed.get("received_at")
+            if raw_ts is not None:
+                if isinstance(raw_ts, datetime):
+                    received_dt = raw_ts
+                else:
+                    try:
+                        received_dt = datetime.fromtimestamp(float(raw_ts), tz=timezone.utc).replace(tzinfo=None)
+                    except Exception:
+                        received_dt = None
+                if received_dt and (not thread_obj.last_message_at or received_dt > thread_obj.last_message_at):
                     thread_obj.last_message_at = received_dt
 
     received_at = None
-    if parsed.get("received_at"):
-        try:
-            received_at = datetime.fromtimestamp(parsed["received_at"], tz=timezone.utc)
-        except Exception:
-            received_at = datetime.utcnow()
+    raw_received = parsed.get("received_at")
+    if raw_received is not None:
+        if isinstance(raw_received, datetime):
+            received_at = raw_received
+        else:
+            try:
+                received_at = datetime.fromtimestamp(float(raw_received), tz=timezone.utc).replace(tzinfo=None)
+            except Exception:
+                pass
 
     email = Email(
         user_id=user_id,
@@ -209,24 +219,19 @@ async def handle_gmail_notification(
 
     for msg in new_messages:
         try:
-            email = await process_new_email(user.id, msg["id"], db)
+            message_id = msg.get("message", {}).get("id") or msg.get("id")
+            if not message_id:
+                continue
+            email = await process_new_email(user.id, message_id, db)
             if email:
                 processed_count += 1
                 classification_results.append({
-                    "message_id": msg["id"],
+                    "message_id": message_id,
                     "status": email.status.value,
                     "category_id": email.category_id,
                 })
         except Exception as e:
-            print(f"Error processing message {msg['id']}: {e}")
-
-    if history_id:
-        await db.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(google_token_expiry=datetime.utcnow())
-        )
-        await db.commit()
+            print(f"Error processing message: {e}")
 
     return {
         "status": "processed",

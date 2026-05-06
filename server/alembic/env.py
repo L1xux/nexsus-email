@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.core.database import Base
 from app.models.user import User
 from app.models.email import Email
+from app.models.thread import EmailThread
 from app.models.category import Category
 from app.models.feedback import Feedback
 

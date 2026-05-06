@@ -61,12 +61,14 @@ async def create_feedback(
             new_status = get_email_status_enum(feedback_data.corrected_status)
             email.status = new_status
     
+    corrected = feedback_data.corrected_category or feedback_data.corrected_status or "unknown"
+
     # Create feedback record
     feedback = Feedback(
         user_id=current_user.id,
         email_id=feedback_data.email_id,
         original_category=original_category,
-        corrected_category=feedback_data.corrected_category or feedback_data.corrected_status,
+        corrected_category=corrected,
         user_comment=feedback_data.user_comment,
         confidence_score=feedback_data.confidence_score,
     )

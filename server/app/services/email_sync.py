@@ -52,10 +52,13 @@ def _parse_received_at(date_value) -> Optional[datetime]:
     if not date_value:
         return None
     try:
+        if isinstance(date_value, datetime):
+            return date_value.replace(tzinfo=None)
         if isinstance(date_value, (int, float)):
             return datetime.fromtimestamp(date_value, tz=timezone.utc).replace(tzinfo=None)
         if isinstance(date_value, str):
-            return datetime.strptime(date_value, "%a %b %d %H:%M:%S %Y")
+            # Handle both "Thu May  7 ..." (single-digit day) and "Thu May 07 ..."
+            return datetime.strptime(date_value.strip(), "%a %b %d %H:%M:%S %Y")
     except (ValueError, TypeError, OSError):
         pass
     return None

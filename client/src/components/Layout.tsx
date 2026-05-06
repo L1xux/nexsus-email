@@ -79,6 +79,7 @@ export default function Layout() {
     setSyncing(true)
     try {
       await emailsApi.sync()
+      setSyncedAt(Date.now())
     } catch (error) {
       console.error('Sync failed')
     } finally {

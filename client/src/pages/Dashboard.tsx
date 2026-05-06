@@ -7,6 +7,8 @@ import {
   Archive,
   Loader2,
   RefreshCw,
+  CalendarClock,
+  ArrowDownUp,
 } from 'lucide-react'
 import { threadsApi, type Thread } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
@@ -28,6 +30,7 @@ export default function Dashboard() {
   const [filterCategory, setFilterCategory] = useState<number | null>(null)
   const [draggedThreadId, setDraggedThreadId] = useState<number | null>(null)
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null)
+  const [sortBy, setSortBy] = useState<'recent' | 'deadline'>('recent')
 
   const currentStatus = searchParams.get('status') as keyof typeof STATUS_CONFIG | null
   const currentCategory = searchParams.get('category')
@@ -40,18 +43,19 @@ export default function Dashboard() {
   const fetchThreads = useCallback(async () => {
     setLoading(true)
     try {
-      const params: Record<string, unknown> = { page: 1, page_size: 200 }
+      const params: Record<string, unknown> = { page: 1, page_size: 100 }
       if (filterStatus) params.status = filterStatus
       if (filterCategory) params.category_id = filterCategory
+      if (sortBy === 'deadline') params.sort_by = 'deadline'
 
-      const { data } = await threadsApi.list({ ...params, page_size: Math.min(Number(params.page_size) || 100, 100) } as any)
+      const { data } = await threadsApi.list(params as any)
       setThreads(data.threads)
     } catch {
       setThreads([])
     } finally {
       setLoading(false)
     }
-  }, [filterStatus, filterCategory])
+  }, [filterStatus, filterCategory, sortBy])
 
   useEffect(() => {
     fetchThreads()
@@ -59,17 +63,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (lastSyncedAt) fetchThreads()
-  }, [lastSyncedAt])
+  }, [lastSyncedAt, fetchThreads])
 
   const handleStatusChange = async (threadId: number, newStatus: string) => {
-    setThreads(threads.map(t =>
+    setThreads(prev => prev.map(t =>
       t.id === threadId ? { ...t, status: newStatus } : t
     ))
-    if (selectedThreadId === threadId) {
-      setThreads(prev => prev.map(t =>
-        t.id === threadId ? { ...t, status: newStatus } : t
-      ))
-    }
     try {
       await threadsApi.update(threadId, { status: newStatus as any })
     } catch {
@@ -117,12 +116,25 @@ export default function Dashboard() {
               {threads.length} threads
             </span>
           </h2>
-          <button
-            onClick={fetchThreads}
-            className="p-2 hover:bg-black hover:text-white transition-colors rounded"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSortBy(sortBy === 'deadline' ? 'recent' : 'deadline')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border transition-colors ${
+                sortBy === 'deadline'
+                  ? 'bg-black text-white border-black'
+                  : 'bg-white text-black border-black hover:bg-zinc-50'
+              }`}
+            >
+              {sortBy === 'deadline' ? <CalendarClock className="w-3.5 h-3.5" /> : <ArrowDownUp className="w-3.5 h-3.5" />}
+              {sortBy === 'deadline' ? '마감순' : '최신순'}
+            </button>
+            <button
+              onClick={fetchThreads}
+              className="p-2 hover:bg-black hover:text-white transition-colors rounded"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-0 divide-y divide-black">
@@ -157,6 +169,19 @@ export default function Dashboard() {
 
   return (
     <>
+      <div className="flex justify-end mb-3">
+        <button
+          onClick={() => setSortBy(sortBy === 'deadline' ? 'recent' : 'deadline')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border transition-colors ${
+            sortBy === 'deadline'
+              ? 'bg-black text-white border-black'
+              : 'bg-white text-black border-black hover:bg-zinc-50'
+          }`}
+        >
+          {sortBy === 'deadline' ? <CalendarClock className="w-3.5 h-3.5" /> : <ArrowDownUp className="w-3.5 h-3.5" />}
+          {sortBy === 'deadline' ? '마감순' : '최신순'}
+        </button>
+      </div>
       <div className="grid grid-cols-4 gap-px bg-black" style={{ minHeight: 'calc(100vh - 220px)' }}>
         {(['todo', 'waiting', 'done', 'inbox'] as const).map(status => {
           const config = STATUS_CONFIG[status]

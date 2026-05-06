@@ -58,8 +58,8 @@ def parse_gmail_message(message: dict) -> dict:
     internal_date = message.get("internalDate")
     received_at = None
     if internal_date:
-        import time
-        received_at = time.ctime(int(internal_date) / 1000)
+        from datetime import datetime, timezone
+        received_at = datetime.fromtimestamp(int(internal_date) / 1000, tz=timezone.utc).replace(tzinfo=None)
 
     return {
         "gmail_message_id": message["id"],

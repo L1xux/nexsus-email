@@ -11,6 +11,15 @@ class ThreadStatus(str, Enum):
     DONE = "done"
 
 
+class CategoryInThread(BaseModel):
+    id: int
+    name: str
+    color: str
+
+    class Config:
+        from_attributes = True
+
+
 class ThreadBase(BaseModel):
     subject: Optional[str] = None
     snippet: Optional[str] = None
@@ -54,6 +63,7 @@ class ThreadResponse(ThreadBase):
     last_message_at: Optional[datetime] = None
     deadline: Optional[datetime] = None
     created_at: datetime
+    category: Optional[CategoryInThread] = None
 
     class Config:
         from_attributes = True

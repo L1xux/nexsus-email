@@ -18,7 +18,7 @@ function AuthCallback() {
     const name = params.get('name')
     const picture = params.get('picture')
 
-    if (token && email) {
+    if (token && email && userId) {
       const user = { id: Number(userId), email, name, picture }
       localStorage.setItem('token', token)
       localStorage.setItem('user', JSON.stringify(user))
