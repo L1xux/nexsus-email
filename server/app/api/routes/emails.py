@@ -166,6 +166,9 @@ async def sync_stream(
     user_id = current_user.id
 
     async def generate():
+        import logging
+        import traceback as tb
+        logger = logging.getLogger(__name__)
         from app.services.email_sync import sync_gmail_emails
         for i, (cs, ce) in enumerate(chunks):
             try:
@@ -184,6 +187,7 @@ async def sync_stream(
                     "new_count": count,
                 })
             except Exception as e:
+                logger.error(f"Sync chunk {i+1}/{len(chunks)} failed: {e}\n{tb.format_exc()}")
                 event_data = json.dumps({
                     "chunk": i + 1,
                     "total": len(chunks),
@@ -191,7 +195,7 @@ async def sync_stream(
                     "new_count": 0,
                 })
             yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0)  # yield to event loop so chunk is flushed before next call
+            await asyncio.sleep(0)
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(

@@ -1,4 +1,5 @@
 from typing import Optional
+from datetime import timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,13 +27,21 @@ def get_google_credentials(user: User = Depends(get_current_user_dep)) -> Creden
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Google account not connected. Please connect your Gmail account to enable sync."
         )
-    
-    credentials = Credentials(
+
+    # Include expiry so google-auth can detect expiration and auto-refresh via AuthorizedHttp
+    expiry = None
+    if user.google_token_expiry:
+        expiry = (
+            user.google_token_expiry
+            if user.google_token_expiry.tzinfo
+            else user.google_token_expiry.replace(tzinfo=timezone.utc)
+        )
+
+    return Credentials(
         token=user.google_access_token,
         refresh_token=user.google_refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.google_client_id,
         client_secret=settings.google_client_secret,
+        expiry=expiry,
     )
-    
-    return credentials

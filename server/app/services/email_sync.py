@@ -23,10 +23,21 @@ async def _upsert_thread(
     db: AsyncSession,
 ) -> tuple[EmailThread, bool]:
     """
-    INSERT-or-skip using a savepoint so only the failed INSERT is rolled back,
-    not the entire session (which would drop already-pending email rows).
+    SELECT-then-INSERT: check existence first to avoid IntegrityError entirely.
+    IntegrityError + SAVEPOINT/ROLLBACK leaves asyncpg connections in a broken
+    state, causing all subsequent session operations to silently fail.
     Returns (thread, is_new).
     """
+    result = await db.execute(
+        select(EmailThread).where(
+            EmailThread.user_id == user_id,
+            EmailThread.gmail_thread_id == gmail_thread_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing, False
+
     thread = EmailThread(
         user_id=user_id,
         gmail_thread_id=gmail_thread_id,
@@ -34,19 +45,9 @@ async def _upsert_thread(
         snippet=thread_snippet,
         message_count=0,
     )
-    try:
-        async with db.begin_nested():  # SAVEPOINT — rollback only this insert, not the whole tx
-            db.add(thread)
-            await db.flush()
-        return thread, True
-    except IntegrityError:
-        result = await db.execute(
-            select(EmailThread).where(
-                EmailThread.user_id == user_id,
-                EmailThread.gmail_thread_id == gmail_thread_id,
-            )
-        )
-        return result.scalar_one(), False
+    db.add(thread)
+    await db.flush()
+    return thread, True
 
 
 def _parse_received_at(date_value) -> Optional[datetime]:

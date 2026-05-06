@@ -30,7 +30,7 @@ export default function Layout() {
   const [syncStep, setSyncStep] = useState<'picker' | 'syncing' | 'done'>('picker')
   const [syncFromDate, setSyncFromDate] = useState('')
   const [syncToDate, setSyncToDate] = useState('')
-  const [syncProgress, setSyncProgress] = useState<{ chunk: number; total: number; from_date: string; to_date: string } | null>(null)
+  const [syncProgress, setSyncProgress] = useState<{ chunk: number; total: number; from_date: string; to_date: string; error?: string } | null>(null)
   const [syncTotalNew, setSyncTotalNew] = useState(0)
 
   useEffect(() => {
@@ -109,7 +109,10 @@ export default function Layout() {
             const data = JSON.parse(line.slice(6))
             if (data.done) {
               setSyncStep('done')
-            } else if (!data.error) {
+            } else if (data.error) {
+              console.error(`Sync chunk ${data.chunk}/${data.total} error:`, data.error)
+              setSyncProgress({ chunk: data.chunk, total: data.total, from_date: data.from_date ?? '', to_date: data.to_date ?? '', error: data.error })
+            } else {
               setSyncProgress({ chunk: data.chunk, total: data.total, from_date: data.from_date, to_date: data.to_date })
               setSyncTotalNew(prev => prev + (data.new_count ?? 0))
               setSyncedAt(Date.now())
@@ -201,9 +204,15 @@ export default function Layout() {
                     <p className="text-sm font-medium text-black">
                       {syncProgress.from_date} ~ {syncProgress.to_date}
                     </p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      {syncProgress.chunk} / {syncProgress.total} 청크 진행 중...
-                    </p>
+                    {syncProgress.error ? (
+                      <p className="text-xs text-red-500 mt-1 max-w-[240px] break-words">
+                        오류: {syncProgress.error}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-zinc-500 mt-1">
+                        {syncProgress.chunk} / {syncProgress.total} 진행 중...
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <p className="text-sm text-zinc-500">동기화 준비 중...</p>
