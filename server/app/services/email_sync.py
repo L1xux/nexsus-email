@@ -11,6 +11,7 @@ from app.models.thread import EmailThread
 from app.models.user import User
 from app.services.gmail_service import fetch_recent_emails, parse_gmail_message
 from app.services.thread_events import dispatch_classification
+from app.core.config import get_settings
 
 
 async def _upsert_thread(
@@ -59,8 +60,8 @@ def _parse_received_at(date_value) -> Optional[datetime]:
         if isinstance(date_value, (int, float)):
             return datetime.fromtimestamp(date_value, tz=timezone.utc).replace(tzinfo=None)
         if isinstance(date_value, str):
-            # Handle both "Thu May  7 ..." (single-digit day) and "Thu May 07 ..."
-            return datetime.strptime(date_value.strip(), "%a %b %d %H:%M:%S %Y")
+            from email.utils import parsedate_to_datetime
+            return parsedate_to_datetime(date_value).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         pass
     return None
@@ -197,9 +198,15 @@ async def process_gmail_webhook(
     if not user or not user.google_access_token:
         return
 
+    _settings = get_settings()
+    expiry = user.google_token_expiry.replace(tzinfo=None) if user.google_token_expiry else None
     credentials = Credentials(
         token=user.google_access_token,
         refresh_token=user.google_refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=_settings.google_client_id,
+        client_secret=_settings.google_client_secret,
+        expiry=expiry,
     )
 
     await sync_gmail_emails(user.id, credentials, db, max_results=10)

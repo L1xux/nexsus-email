@@ -91,7 +91,16 @@ export default function Layout() {
       const response = await fetch(`${API_BASE_URL}/api/emails/sync-stream?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!response.ok || !response.body) throw new Error('Sync request failed')
+      if (response.status === 401) {
+        localStorage.removeItem('token')
+        window.location.href = '/login'
+        return
+      }
+      if (response.status === 403) {
+        window.location.href = '/login?google_required=true'
+        return
+      }
+      if (!response.ok || !response.body) throw new Error(`Sync request failed (${response.status})`)
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()

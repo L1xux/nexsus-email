@@ -9,10 +9,9 @@ from sqlalchemy import select, desc, func
 from google.oauth2.credentials import Credentials
 
 from app.core.database import get_db, AsyncSessionLocal
-from app.core.google import get_gmail_service, get_email as gmail_get_email
 from app.core.config import get_settings
 from app.models.user import User
-from app.models.email import Email, EmailStatus
+from app.models.email import Email
 from app.models.category import Category
 from app.schemas.email import EmailResponse, EmailListResponse, EmailUpdate, EmailStatus as EmailStatusSchema
 from app.api.dependencies import get_current_user_dep, get_google_credentials
@@ -208,33 +207,3 @@ async def sync_emails(
         )
 
 
-@router.post("/seed")
-async def seed_test_emails(
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(select(User).limit(1))
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        raise HTTPException(status_code=401, detail="No user found")
-    
-    test_emails = [
-        Email(
-            user_id=user.id,
-            gmail_message_id=f"test-{i}",
-            subject=f"Test Email {i}",
-            sender=f"Sender {i}",
-            sender_email=f"sender{i}@example.com",
-            snippet=f"This is test email number {i}",
-            body_text=f"Body of test email {i}",
-            status=EmailStatus.INBOX,
-            is_read=False,
-            received_at=datetime.utcnow(),
-        )
-        for i in range(1, 11)
-    ]
-    
-    db.add_all(test_emails)
-    await db.commit()
-    
-    return {"message": f"Created {len(test_emails)} test emails"}

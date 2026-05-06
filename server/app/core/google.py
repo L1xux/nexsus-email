@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -37,7 +38,7 @@ def get_gmail_service(credentials: Credentials):
 
 async def get_user_info(credentials: Credentials) -> dict:
     service = build("oauth2", "v2", credentials=credentials, cache_discovery=False)
-    return service.userinfo().get().execute()
+    return await asyncio.to_thread(service.userinfo().get().execute)
 
 
 async def list_emails(
@@ -47,21 +48,25 @@ async def list_emails(
     page_token: Optional[str] = None
 ) -> dict:
     service = get_gmail_service(credentials)
-    return service.users().messages().list(
-        userId="me",
-        maxResults=max_results,
-        q=query,
-        pageToken=page_token,
-    ).execute()
+    return await asyncio.to_thread(
+        service.users().messages().list(
+            userId="me",
+            maxResults=max_results,
+            q=query,
+            pageToken=page_token,
+        ).execute
+    )
 
 
 async def get_email(credentials: Credentials, message_id: str) -> dict:
     service = get_gmail_service(credentials)
-    return service.users().messages().get(
-        userId="me",
-        id=message_id,
-        format="full",
-    ).execute()
+    return await asyncio.to_thread(
+        service.users().messages().get(
+            userId="me",
+            id=message_id,
+            format="full",
+        ).execute
+    )
 
 
 async def modify_email_labels(
@@ -71,29 +76,28 @@ async def modify_email_labels(
     remove_label_ids: list[str] = None
 ) -> dict:
     service = get_gmail_service(credentials)
-    
+
     body = {}
     if add_label_ids:
         body["addLabelIds"] = add_label_ids
     if remove_label_ids:
         body["removeLabelIds"] = remove_label_ids
-    
-    message = service.users().messages().modify(
-        userId="me",
-        id=message_id,
-        body=body,
-    ).execute()
-    
-    return message
+
+    return await asyncio.to_thread(
+        service.users().messages().modify(
+            userId="me",
+            id=message_id,
+            body=body,
+        ).execute
+    )
 
 
 async def get_thread(credentials: Credentials, thread_id: str) -> dict:
     service = get_gmail_service(credentials)
-    
-    thread = service.users().threads().get(
-        userId="me",
-        id=thread_id,
-        format="full",
-    ).execute()
-    
-    return thread
+    return await asyncio.to_thread(
+        service.users().threads().get(
+            userId="me",
+            id=thread_id,
+            format="full",
+        ).execute
+    )
