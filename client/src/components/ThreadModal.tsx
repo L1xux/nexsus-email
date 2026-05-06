@@ -40,14 +40,21 @@ export default function ThreadModal({ threadId, onClose, onStatusChange, onCateg
   const handleCategorySelect = async (cat: Category | null) => {
     if (!thread) return
     setCategoryOpen(false)
+
+    // Optimistic update — apply immediately before API call
+    const prevCategory = thread.category
+    const prevCategoryId = thread.category_id
+    const updated = { ...thread, category_id: cat?.id ?? null, category: cat ?? undefined }
+    setThread(updated as ThreadWithEmails)
+    onCategoryChange?.(thread.id, cat?.id ?? null, cat)
+
     setSavingCategory(true)
     try {
       await threadsApi.update(thread.id, { category_id: cat?.id ?? null })
-      const updated = { ...thread, category_id: cat?.id ?? null, category: cat ?? undefined }
-      setThread(updated as ThreadWithEmails)
-      onCategoryChange?.(thread.id, cat?.id ?? null, cat)
     } catch {
-      // silent — UI stays consistent
+      // Rollback on failure
+      setThread({ ...thread, category_id: prevCategoryId, category: prevCategory } as ThreadWithEmails)
+      onCategoryChange?.(thread.id, prevCategoryId ?? null, prevCategory ?? null)
     } finally {
       setSavingCategory(false)
     }

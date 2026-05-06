@@ -138,8 +138,15 @@ async def update_thread(
             thread.category_id = thread_update.category_id
     
     await db.commit()
-    await db.refresh(thread)
-    
+
+    # Re-query with relationships after commit (db.refresh doesn't reload selectinload)
+    refreshed = await db.execute(
+        select(EmailThread)
+        .where(EmailThread.id == thread_id)
+        .options(selectinload(EmailThread.category))
+    )
+    thread = refreshed.scalar_one()
+
     return ThreadResponse.model_validate(thread)
 
 
