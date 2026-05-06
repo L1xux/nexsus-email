@@ -51,6 +51,10 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 
+# Session factory for background tasks (not tied to HTTP request lifecycle)
+AsyncSessionLocal = get_session_maker()
+
+
 async def init_db():
     async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

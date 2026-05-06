@@ -53,7 +53,7 @@ def _parse_received_at(date_value) -> Optional[datetime]:
         return None
     try:
         if isinstance(date_value, (int, float)):
-            return datetime.fromtimestamp(date_value, tz=timezone.utc)
+            return datetime.fromtimestamp(date_value, tz=timezone.utc).replace(tzinfo=None)
         if isinstance(date_value, str):
             return datetime.strptime(date_value, "%a %b %d %H:%M:%S %Y")
     except (ValueError, TypeError, OSError):

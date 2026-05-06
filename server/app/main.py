@@ -34,9 +34,10 @@ app = FastAPI(
 
 # Add CORS middleware at startup
 client_url = get_client_url()
+origins = ["*"] if client_url == "*" else [client_url]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[client_url],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from app.models.thread import EmailThread, ThreadStatus
 from app.models.email import Email
 from app.services.thread_classifier import classify_thread_with_category
-from app.services.gmail_service import parse_gmail_message
+from app.core.gmail_parser import parse_gmail_message
 
 
 def _build_message_dict(email: Email) -> dict:

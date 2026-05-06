@@ -36,74 +36,58 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
+async def _get_or_create_dev_user(db: AsyncSession):
+    """Get or create dev user for development mode bypass. Only used when explicitly enabled."""
+    from app.models.user import User
+    from sqlalchemy import select
+
+    result = await db.execute(select(User).where(User.email == "dev@nexusmail.local"))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(
+            email="dev@nexusmail.local",
+            name="Dev User",
+            picture=None,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    return user
+
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db)
 ):
     from app.models.user import User
     from sqlalchemy import select
-    
-    if settings.app_env == "development" and not token:
-        result = await db.execute(select(User).where(User.email == "dev@nexusmail.local"))
-        user = result.scalar_one_or_none()
-        if not user:
-            user = User(
-                email="dev@nexusmail.local",
-                name="Dev User",
-                picture=None,
-            )
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
-        return user
-    
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
+    # Development mode bypass: only auto-create dev user when explicitly enabled
+    if settings.app_env == "development" and settings.dev_bypass_auth:
+        if not token or decode_token(token) is None:
+            return await _get_or_create_dev_user(db)
+
     if not token:
-        if settings.app_env == "development":
-            result = await db.execute(select(User).where(User.email == "dev@nexusmail.local"))
-            user = result.scalar_one_or_none()
-            if not user:
-                user = User(
-                    email="dev@nexusmail.local",
-                    name="Dev User",
-                    picture=None,
-                )
-                db.add(user)
-                await db.commit()
-                await db.refresh(user)
-            return user
         raise credentials_exception
-    
+
     payload = decode_token(token)
     if payload is None:
-        if settings.app_env == "development":
-            result = await db.execute(select(User).where(User.email == "dev@nexusmail.local"))
-            user = result.scalar_one_or_none()
-            if not user:
-                user = User(
-                    email="dev@nexusmail.local",
-                    name="Dev User",
-                    picture=None,
-                )
-                db.add(user)
-                await db.commit()
-                await db.refresh(user)
-            return user
         raise credentials_exception
-    
+
     user_id: str = payload.get("sub")
     if user_id is None:
         raise credentials_exception
-    
+
     result = await db.execute(select(User).where(User.id == int(user_id)))
     user = result.scalar_one_or_none()
-    
+
     if user is None:
         raise credentials_exception
-    
+
     return user

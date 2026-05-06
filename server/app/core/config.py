@@ -59,6 +59,7 @@ class Settings(BaseSettings):
 
     # App
     app_env: str = "development"
+    dev_bypass_auth: bool = False  # Must be explicitly enabled for dev auth bypass
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     client_url: str = "http://localhost:5173"
